@@ -6,6 +6,16 @@
 
 **Build organizations, not just agents.**
 
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
+  <a href="https://github.com/aeonbilal/OpenMAO/stargazers"><img src="https://img.shields.io/github/stars/aeonbilal/OpenMAO" alt="GitHub stars"></a>
+  <a href="https://github.com/aeonbilal/OpenMAO/discussions"><img src="https://img.shields.io/github/discussions/aeonbilal/OpenMAO" alt="GitHub Discussions"></a>
+  <a href="https://github.com/aeonbilal/OpenMAO/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22"><img src="https://img.shields.io/github/issues/aeonbilal/OpenMAO/good%20first%20issue?label=good%20first%20issues&color=7057ff" alt="Good first issues"></a>
+  <img src="https://img.shields.io/badge/status-release%20candidate-orange" alt="Status: release candidate">
+</p>
+
+> **Try it in ~3 minutes — no API keys, no LLM calls, no cloud.** Run `make install && make demo && make demo-approve` and watch an organization run a two-agent workflow, **pause for human approval**, resume from durable state, and **promote memory only after you approve** — with a fully inspectable event log.
+
 OpenMAO is an open-source substrate for AI-native organizations that run themselves, accountably.
 You define the mission, roles, goals, and guardrails. Agents do the work. The organization remembers
 what it learns, proposes corrections when patterns repeat, and earns more autonomy as it proves it
@@ -48,6 +58,11 @@ OpenMAO is an early, local TypeScript release candidate. It proves the core sema
 deterministic demo that needs no API keys, no real LLM calls, and no hosted services: it spins up a
 small organization, runs a two-agent workflow, pauses for human approval, resumes from durable
 state, promotes memory only after approval, and leaves a fully inspectable event and trace history.
+
+<!-- Demo recording (60-90s): record via the kit in the private "OpenMAO Design + Web" repo, then add it here:
+<p align="center"><img src="docs/assets/openmao-demo.gif" alt="OpenMAO demo: run, pause for approval, resume from durable state, promote memory after approval" width="820"></p>
+-->
+
 
 The governance, memory, audit, and first institutional-learning foundations are real and tested.
 OpenMAO can detect early operational patterns and create evidence-backed improvement proposals for

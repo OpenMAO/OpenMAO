@@ -52,3 +52,9 @@ coverage/
 /docs/templates/AUDIT_REPORT_TEMPLATE.md
 /docs/templates/SESSION_TEMPLATE.md
 /docs/templates/SIGNOFF_LOG_TEMPLATE.md
+
+# Internal / marketing — lives in the private "OpenMAO Design + Web" repo, never here.
+# (Public brand assets like the logo/mark stay tracked under docs/assets and docs/brand.)
+/launch/
+/docs/internal/
+docs/assets/openmao-social.*
