@@ -7,13 +7,15 @@ import { ConsoleTransport, HeartbeatService } from "./heartbeat/index.js";
 import { IngestionService } from "./ingestion/index.js";
 import { LearningService } from "./learning/index.js";
 import { MemoryRetrievalService, PromotionService } from "./memory/index.js";
-import { OrgChangeService, OrgControlService } from "./org/index.js";
+import { AutonomyService, OrgChangeService, OrgControlService } from "./org/index.js";
 import {
+  AutonomyCaseStore,
   BoundedWorkEnvelopeStore,
   type Database,
   EventStore,
   IngestionRecordStore,
   MemoryEntryStore,
+  OrganizationStore,
   OrgChangeApplicationStore,
   OrgChangeProposalStore,
   PromotionCandidateStore,
@@ -33,6 +35,7 @@ import { WorkService } from "./work/index.js";
 import {
   approveReferenceWorkerDemo,
   REFERENCE_RUN_ID,
+  runHermesDogfoodDemo,
   runReferenceWorkerDemo,
 } from "./workers/index.js";
 import { WorldModelService } from "./world/index.js";
@@ -90,6 +93,11 @@ function positionalArgs(args: string[]): string[] {
     "--interval",
     "--at",
     "--scope",
+    "--rationale",
+    "--evidence",
+    "--to",
+    "--actor",
+    "--org",
     "--min-confidence",
     "--limit",
     "--by",
@@ -163,7 +171,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
 
     if (command === "help" || command === "--help" || command === "-h") {
       write(
-        "openmao demo | demo-approve | init | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | memory search|list|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | console",
+        "openmao demo | demo-approve | init | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | autonomy status|propose|ratify|reject|narrow [--rationale t] [--evidence ref] [--to level] [--actor a] | memory search|list|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | hermes-demo | console",
       );
       return 0;
     }
@@ -531,6 +539,94 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
     }
     if (command === "org" && subcommand === "control") {
       printJson(write, new OrgControlService(database).get(selectedWorkspace));
+      return 0;
+    }
+    if (command === "autonomy") {
+      const autonomy = new AutonomyService(database);
+      const orgId =
+        optionValue(args, "--org") ??
+        new OrganizationStore(database).listForWorkspace(selectedWorkspace)[0]?.id;
+      if (!orgId) {
+        throw new Error(`no organization found in workspace: ${selectedWorkspace}`);
+      }
+      const actor = optionValue(args, "--actor") ?? "cli_operator";
+      if (subcommand === "status" || subcommand === "") {
+        const trackRecord = new OrgChangeApplicationStore(database)
+          .listForWorkspace(selectedWorkspace)
+          .filter((application) => application.status === "verified").length;
+        printJson(write, {
+          org_id: orgId,
+          autonomy_level: new OrganizationStore(database).get(orgId)?.autonomy_level ?? null,
+          verified_track_record: trackRecord,
+          cases: new AutonomyCaseStore(database).listForWorkspace(selectedWorkspace),
+        });
+        return 0;
+      }
+      if (subcommand === "propose") {
+        const rationale = optionValue(args, "--rationale");
+        if (!rationale) {
+          throw new Error("autonomy propose requires --rationale");
+        }
+        const evidenceRef = optionValue(args, "--evidence");
+        printJson(
+          write,
+          autonomy.proposeWidening({
+            workspace_id: selectedWorkspace,
+            org_id: orgId,
+            proposed_by: actor,
+            rationale,
+            evidence: evidenceRef
+              ? [{ kind: "event", ref_id: evidenceRef, summary: rationale, weight: 1 }]
+              : [],
+          }),
+        );
+        return 0;
+      }
+      if (subcommand === "ratify") {
+        const caseId = positions[2];
+        if (!caseId) {
+          throw new Error("autonomy ratify requires a case id");
+        }
+        printJson(
+          write,
+          autonomy.ratifyWidening(caseId, { workspace_id: selectedWorkspace, actor }),
+        );
+        return 0;
+      }
+      if (subcommand === "reject") {
+        const caseId = positions[2];
+        if (!caseId) {
+          throw new Error("autonomy reject requires a case id");
+        }
+        printJson(
+          write,
+          autonomy.rejectWidening(caseId, { workspace_id: selectedWorkspace, actor }),
+        );
+        return 0;
+      }
+      if (subcommand === "narrow") {
+        const toLevel = optionValue(args, "--to");
+        if (toLevel !== "advisory" && toLevel !== "supervised" && toLevel !== "bounded") {
+          throw new Error("autonomy narrow requires --to advisory|supervised|bounded");
+        }
+        printJson(
+          write,
+          autonomy.narrow({
+            workspace_id: selectedWorkspace,
+            org_id: orgId,
+            to_level: toLevel,
+            actor,
+          }),
+        );
+        return 0;
+      }
+      throw new Error(`unknown autonomy subcommand: ${subcommand}`);
+    }
+    if (command === "hermes-demo") {
+      const result = await runHermesDogfoodDemo(database, (line) =>
+        write(line.replace(/\n+$/, "")),
+      );
+      printJson(write, result);
       return 0;
     }
     if (command === "approvals" && subcommand === "approve") {

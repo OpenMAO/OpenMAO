@@ -76,6 +76,14 @@ See what the organization currently understands about itself:
 npm run cli -- world --run run_99999999999999999999999999999999
 ```
 
+Watch OpenMAO govern an external worker end to end — it hires a worker, scopes it to a single repo,
+suspends a side effect for human approval, blocks an out-of-scope attempt, and diagnoses the
+resulting failure (mock provider, no credentials needed):
+
+```bash
+npm run cli -- hermes-demo
+```
+
 Open the operator console. It runs on `127.0.0.1` and prompts for the token the server prints:
 
 ```bash

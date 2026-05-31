@@ -1,4 +1,8 @@
 export {
+  type HermesDogfoodDemoResult,
+  runHermesDogfoodDemo,
+} from "./hermes_dogfood_demo.js";
+export {
   approveReferenceWorkerDemo,
   prepareReferenceWorkerDemo,
   REFERENCE_CAPABILITY_APPROVAL_ID,

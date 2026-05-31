@@ -107,6 +107,11 @@ OpenMAO work items, roles, policies, approvals, memory, events, world model
 | Local runtime wiring | `ts/src/runtime/` |
 | HTTP API and console | `ts/src/api/` |
 | CLI | `ts/src/cli.ts` |
+| Reversible org-change apply and revert | `ts/src/org/apply.ts` |
+| Advisory causal diagnosis | `ts/src/diagnosis/` |
+| Earned-autonomy dial | `ts/src/org/autonomy.ts` |
+| Chief of Staff loop and heartbeat | `ts/src/chief_of_staff/`, `ts/src/heartbeat/` |
+| External-worker capability initiation and network SDK | `ts/src/api/server.ts`, `ts/src/sdk/` |
 
 ## Substrate Boundary
 
@@ -229,10 +234,12 @@ blockers, failed or blocked handoffs, approval bottlenecks, missing or disabled 
 stale memory.
 
 Learning proposals are reviewed through approval state. Approval records that a proposal is accepted
-for follow-up; rejection records that the proposal was reviewed and declined. Marking a proposal
-applied is an explicit audited marker and does not silently mutate organization configuration,
-roles, policies, capabilities, memory, or org graph. Any future automatic application path must be a
-separate controlled service with its own authority, reversibility, and tests.
+for follow-up; rejection records that the proposal was reviewed and declined. Applying an approved
+proposal runs through a separate controlled service (`ts/src/org/apply.ts`) with its own authority:
+in-transaction verification, reversibility (a revert refuses on content drift), a per-application
+blast-radius cap, and proposer/applier separation — it never silently mutates organization
+configuration, roles, policies, capabilities, memory, or org graph. Change types without a
+registered applier fall back to an explicit audited marker rather than mutating anything.
 
 ## Runtime Choices
 
