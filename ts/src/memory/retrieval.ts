@@ -65,6 +65,16 @@ export type MemoryListResult = {
   trust: MemoryTrust;
 };
 
+export type MemoryListFilters = {
+  scope?: MemoryEntry["scope"];
+  /**
+   * Restrict to individual memory owned by this actor. The API individual-memory
+   * read uses this so a per-agent surface still runs through the trust filter
+   * (#113) instead of reading the store directly.
+   */
+  owner_id?: string;
+};
+
 const DEFAULT_LIMIT = 50;
 // ASCII-alphanumeric, lowercased tokens — deterministic and dependency-free.
 // Non-Latin scripts are out of scope for v0.5.0; a future analyzer/FTS can extend this.
@@ -200,12 +210,23 @@ export class MemoryRetrievalService {
   /**
    * Lists workspace memory with the derived trust tier. The default omits
    * untrusted entries; the review option includes them labeled and puts the
-   * review on the record.
+   * review on the record. Optional filters narrow by scope/owner so per-agent
+   * and per-scope surfaces still run through the trust filter (#113).
    */
-  list(workspaceId: string, review?: MemoryReviewOptions): MemoryListResult[] {
+  list(
+    workspaceId: string,
+    filters: MemoryListFilters = {},
+    review?: MemoryReviewOptions,
+  ): MemoryListResult[] {
     const reviewer = this.requireReviewer(review);
     const results: MemoryListResult[] = [];
     for (const entry of this.entries.listForWorkspace(workspaceId)) {
+      if (filters.scope && entry.scope !== filters.scope) {
+        continue;
+      }
+      if (filters.owner_id !== undefined && entry.owner_id !== filters.owner_id) {
+        continue;
+      }
       const { trust } = deriveMemoryTrust(entry, this.trustStores());
       if (trust === "untrusted" && !reviewer) {
         continue;

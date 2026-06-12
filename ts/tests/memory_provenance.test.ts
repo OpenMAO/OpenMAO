@@ -196,16 +196,87 @@ describe("memory provenance invariant (#113)", () => {
     });
   });
 
-  it("derives guidance_eligible from an operator attestation", () => {
-    const entry = promotionService().writeIndividual(
+  it("derives guidance_eligible from an operator attestation once it is on the record", () => {
+    const service = promotionService();
+    const entry = service.writeIndividual(
       makeEntry("mem_33333333333333333333333333333333", { attested_by: REVIEWER }),
     );
+
+    // The bare claim is not proof: before the attestation event it stays
+    // untrusted and is recorded as an unresolved marker.
+    expect(deriveMemoryTrust(entry, trustStores())).toEqual({
+      trust: "untrusted",
+      basis: null,
+      unresolved: [`operator_attestation:${REVIEWER}`],
+    });
+
+    service.attestMemory(entry.id, { attested_by: REVIEWER });
 
     expect(deriveMemoryTrust(entry, trustStores())).toEqual({
       trust: "guidance_eligible",
       basis: "operator_attestation",
       unresolved: [],
     });
+  });
+
+  it("requires a bare attested_by with no attestation event to stay untrusted", () => {
+    const entry = promotionService().writeIndividual(
+      makeEntry("mem_a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0", { attested_by: REVIEWER }),
+    );
+
+    // A self-asserted attestor with no resolvable attestation event is a
+    // supplied-but-unresolved marker, so it is untrusted and the integrity
+    // event fires.
+    expect(deriveMemoryTrust(entry, trustStores())).toEqual({
+      trust: "untrusted",
+      basis: null,
+      unresolved: [`operator_attestation:${REVIEWER}`],
+    });
+    const integrity = eventsOfKind("memory.provenance_unresolved");
+    expect(integrity).toHaveLength(1);
+    expect(integrity[0]?.payload.data.unresolved).toEqual([`operator_attestation:${REVIEWER}`]);
+  });
+
+  it("makes a bare attested_by guidance_eligible after attestMemory puts proof on the record", () => {
+    const service = promotionService();
+    const entry = service.writeIndividual(
+      makeEntry("mem_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1", { attested_by: REVIEWER }),
+    );
+    expect(deriveMemoryTrust(entry, trustStores()).trust).toBe("untrusted");
+
+    const attestation = service.attestMemory(entry.id, { attested_by: REVIEWER });
+    expect(attestation.kind).toBe("memory.operator_attested");
+    expect(attestation.actor).toBe(REVIEWER);
+    expect(attestation.idempotency_key).toBe(`${entry.id}:operator_attested`);
+    expect(attestation.payload.refs).toEqual([entry.id]);
+    expect(deriveMemoryTrust(entry, trustStores()).trust).toBe("guidance_eligible");
+  });
+
+  it("rejects an operator attestation by a blank or agent-shaped attestor", () => {
+    const service = promotionService();
+    const entry = service.writeIndividual(
+      makeEntry("mem_a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2", { attested_by: REVIEWER }),
+    );
+
+    expect(() => service.attestMemory(entry.id, { attested_by: "   " })).toThrow(/non-blank/);
+    expect(() =>
+      service.attestMemory(entry.id, { attested_by: "agent_55555555555555555555555555555555" }),
+    ).toThrow(/agent id/);
+    // Neither rejected call left an attestation behind: still untrusted.
+    expect(deriveMemoryTrust(entry, trustStores()).trust).toBe("untrusted");
+  });
+
+  it("is idempotent: re-attesting the same entry is a no-op", () => {
+    const service = promotionService();
+    const entry = service.writeIndividual(
+      makeEntry("mem_a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3", { attested_by: REVIEWER }),
+    );
+
+    const first = service.attestMemory(entry.id, { attested_by: REVIEWER });
+    const second = service.attestMemory(entry.id, { attested_by: REVIEWER });
+    expect(second.id).toBe(first.id);
+    expect(eventsOfKind("memory.operator_attested")).toHaveLength(1);
+    expect(deriveMemoryTrust(entry, trustStores()).trust).toBe("guidance_eligible");
   });
 
   it("never accepts an agent id as an operator attestation", () => {
@@ -341,6 +412,7 @@ describe("memory provenance invariant (#113)", () => {
     const eligible = service.writeIndividual(
       makeEntry("mem_e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1", { attested_by: REVIEWER }),
     );
+    service.attestMemory(eligible.id, { attested_by: REVIEWER });
     const untrusted = service.writeIndividual(
       makeEntry("mem_e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2", {}),
     );
@@ -376,30 +448,41 @@ describe("memory provenance invariant (#113)", () => {
 
   it("review requires a named reviewer and stays silent when nothing untrusted is returned", () => {
     const service = promotionService();
-    service.writeIndividual(
+    const attested = service.writeIndividual(
       makeEntry("mem_e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4", { attested_by: REVIEWER }),
     );
+    service.attestMemory(attested.id, { attested_by: REVIEWER });
     const retrieval = new MemoryRetrievalService(database);
 
     expect(() =>
       retrieval.search(WS, "deliverability", {}, { include_untrusted: true, reviewed_by: "  " }),
     ).toThrow(MemoryReviewError);
-    expect(() => retrieval.list(WS, { include_untrusted: true, reviewed_by: "" })).toThrow(
+    expect(() => retrieval.list(WS, {}, { include_untrusted: true, reviewed_by: "" })).toThrow(
       MemoryReviewError,
     );
 
     // All workspace memory is guidance-eligible: the review reads nothing
     // untrusted, so nothing goes on the record.
-    retrieval.list(WS, { include_untrusted: true, reviewed_by: REVIEWER });
+    retrieval.list(WS, {}, { include_untrusted: true, reviewed_by: REVIEWER });
     expect(eventsOfKind("memory.untrusted_reviewed")).toEqual([]);
   });
 
   it("gates the CLI review path behind --include-untrusted --by", async () => {
     const dbPath = join(tmpRoot, "openmao.sqlite3");
-    promotionService().writeIndividual(
+    const attested = promotionService().writeIndividual(
       makeEntry("mem_e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5", { attested_by: REVIEWER }),
     );
     promotionService().writeIndividual(makeEntry("mem_e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6", {}));
+
+    // Attest e5 over the CLI so it is guidance-eligible and visible by default.
+    const attestLines: string[] = [];
+    expect(
+      await runCli(["memory", "attest", attested.id, "--by", REVIEWER, "--workspace", WS], {
+        dbPath,
+        write: (message) => attestLines.push(message),
+      }),
+    ).toBe(0);
+    expect(JSON.parse(attestLines.join("\n")).kind).toBe("memory.operator_attested");
 
     const defaultLines: string[] = [];
     expect(
@@ -409,6 +492,9 @@ describe("memory provenance invariant (#113)", () => {
       }),
     ).toBe(0);
     const defaultRows = JSON.parse(defaultLines.join("\n")) as MemoryListResult[];
+    // The attested entry is guidance-eligible and shows by default; the
+    // unprovenanced one does not.
+    expect(defaultRows.map((row) => row.entry.id)).toContain(attested.id);
     expect(defaultRows.map((row) => row.entry.id)).not.toContain(
       "mem_e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6",
     );

@@ -147,8 +147,11 @@ describe("TypeScript memory promotion and world model", () => {
     const run = await seedRunningRun();
     await seedFixtureSourceEvent();
     const fixture = await loadFixture();
+    // No corroboration is recorded in this case, so it opts into the 0
+    // corroboration floor explicitly (#101 default is 1).
     const service = new PromotionService(database, {
       collective_memory_dir: join(tmpRoot, "collective_memory"),
+      min_corroboration: 0,
     });
     const individual = service.writeIndividual(MemoryEntrySchema.parse(fixture.memory_entry));
     const candidate = PromotionCandidateSchema.parse(fixture.promotion_candidate);

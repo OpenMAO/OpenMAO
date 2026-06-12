@@ -8,6 +8,7 @@ import {
   type ApprovalRequest,
   type Corroboration,
   CorroborationSchema,
+  type Event,
   EventPayloadSchema,
   type MemoryEntry,
   MemoryEntrySchema,
@@ -29,9 +30,18 @@ import {
   NodeEffectStore,
   PromotionCandidateStore,
 } from "../persistence/index.js";
-import { deriveMemoryTrust, type MemoryTrustStores, sourcePromotionNote } from "./provenance.js";
+import {
+  deriveMemoryTrust,
+  type MemoryTrustStores,
+  operatorAttestedIdempotencyKey,
+  sourcePromotionNote,
+} from "./provenance.js";
 
 export class PromotionServiceError extends Error {}
+
+// A canonical agent id can never stand in as an operator attestor: attestation
+// is the explicitly human path into guidance, not a second self-assertion lane.
+const AGENT_ID_REGEX = /^agent_[0-9a-f]{32}$/;
 
 export class CollectiveMemoryEffectError extends PromotionServiceError {
   constructor(
@@ -76,7 +86,11 @@ export class PromotionService {
     this.approvals = new ApprovalStore(database);
     this.corroborations = new CorroborationStore(database);
     this.capabilityResults = new CapabilityResultStore(database);
-    this.minCorroboration = Math.max(0, Math.floor(options.min_corroboration ?? 0));
+    // Corroboration floor defaults to 1 (#101): promotion to collective
+    // guidance requires at least one independent corroboration unless a caller
+    // explicitly opts into 0. Kept identical to #101 so a merge cannot silently
+    // revert that security default.
+    this.minCorroboration = Math.max(0, Math.floor(options.min_corroboration ?? 1));
     this.collectiveMemoryDir =
       options.collective_memory_dir ??
       (database.path === ":memory:"
@@ -129,6 +143,46 @@ export class PromotionService {
 
   private trustStores(): MemoryTrustStores {
     return { events: this.events, capabilityResults: this.capabilityResults };
+  }
+
+  /**
+   * Operator path of the provenance invariant (#113): an OPERATOR puts an
+   * attestation on the record so a memory entry whose `provenance.attested_by`
+   * names that operator derives guidance-eligible. Like the other two trust
+   * bases, attestation is proof-backed, not self-asserted: the bare string on
+   * the entry confers nothing — only this resolvable `memory.operator_attested`
+   * event does. Idempotent on the deterministic key, so re-attesting is a no-op.
+   *
+   * The attestor must be a non-blank operator and never an agent id; an agent
+   * id would be a second self-assertion lane, which attestation exists to deny.
+   */
+  attestMemory(entryId: string, input: { attested_by: string }): Event {
+    const attestor = input.attested_by.trim();
+    if (attestor.length === 0) {
+      throw new PromotionServiceError("operator attestation requires a non-blank attestor");
+    }
+    if (AGENT_ID_REGEX.test(attestor)) {
+      throw new PromotionServiceError(
+        "operator attestation cannot be made by an agent id: attestation is the human path",
+      );
+    }
+    return this.database.transaction(() => {
+      const entry = this.entries.get(entryId);
+      if (!entry) {
+        throw new PromotionServiceError(`memory entry not found: ${entryId}`);
+      }
+      return this.events.append({
+        workspace_id: entry.workspace_id,
+        run_id: entry.provenance.run_id,
+        kind: "memory.operator_attested",
+        actor: attestor,
+        payload: EventPayloadSchema.parse({
+          data: { memory_entry_id: entry.id, attested_by: attestor },
+          refs: [entry.id],
+        }),
+        idempotency_key: operatorAttestedIdempotencyKey(entry.id),
+      });
+    });
   }
 
   propose(
@@ -470,8 +524,11 @@ export class PromotionService {
         agent_id: candidate.proposed_by,
         run_id: source.provenance.run_id,
         task_id: source.provenance.task_id,
-        // Carry every trust-bearing ref through promotion so the collective
-        // entry derives guidance-eligible on the same basis as its source.
+        // Carry every trust-bearing ref through promotion to preserve the
+        // source's provenance lineage. The capability-result and source-event
+        // bases re-resolve under the collective id; collective memory is read
+        // without the trust filter regardless (only ratified entries become
+        // collective), so this carry is lineage, not a re-derivation gate.
         source_event_id: source.provenance.source_event_id,
         capability_result_id: source.provenance.capability_result_id,
         attested_by: source.provenance.attested_by,

@@ -419,8 +419,11 @@ export class SpineService {
     }
 
     this.checkpointNode(run, "approval_resolved", [`${resolvedApprovalId}:approved`]);
+    // The demo ratifies a single proposed candidate with no corroboration, so
+    // it opts into the 0 corroboration floor explicitly (#101 default is 1).
     const collective = new PromotionService(this.database, {
       collective_memory_dir: this.collectiveMemoryDir(),
+      min_corroboration: 0,
     }).ratifyAndWriteCollective(PROMOTION_CANDIDATE_ID, {
       workspace_id: WORKSPACE_ID,
       approval_id: resolvedApprovalId,

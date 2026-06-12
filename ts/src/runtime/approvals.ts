@@ -7,11 +7,17 @@ export function createApprovalServiceWithApplications(database: Database): Appro
   return new ApprovalService(database, {
     applyWithoutRun: (approval) => {
       if (approval.payload.target_type === "promotion_candidate") {
-        new PromotionService(database).ratifyAndWriteCollective(approval.payload.target_id, {
-          workspace_id: approval.workspace_id,
-          approval_id: approval.id,
-          resolved_at: approval.resolved_at,
-        });
+        // The v0 demo promotion is approved without corroboration, so this
+        // application path opts into the 0 corroboration floor explicitly
+        // (#101 default is 1).
+        new PromotionService(database, { min_corroboration: 0 }).ratifyAndWriteCollective(
+          approval.payload.target_id,
+          {
+            workspace_id: approval.workspace_id,
+            approval_id: approval.id,
+            resolved_at: approval.resolved_at,
+          },
+        );
         return;
       }
       if (approval.payload.target_type === "org_change_proposal") {

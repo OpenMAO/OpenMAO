@@ -17,6 +17,7 @@ import {
   type Database,
   EventStore,
   IngestionRecordStore,
+  MemoryEntryStore,
   OrgChangeApplicationStore,
   OrgChangeProposalStore,
   PromotionCandidateStore,
@@ -183,7 +184,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
 
     if (command === "help" || command === "--help" || command === "-h") {
       write(
-        "openmao demo | demo-approve | demo-deny | init | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | memory search|list [--include-untrusted --by <actor>]|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | verify-chain | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | console",
+        "openmao demo | demo-approve | demo-deny | init | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | memory search|list [--include-untrusted --by <actor>]|attest <entry_id> --by <operator>|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | verify-chain | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | console",
       );
       return 0;
     }
@@ -518,7 +519,27 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
     if (command === "memory" && (subcommand === "list" || subcommand === "")) {
       printJson(
         write,
-        new MemoryRetrievalService(database).list(selectedWorkspace, memoryReviewOption(args)),
+        new MemoryRetrievalService(database).list(selectedWorkspace, {}, memoryReviewOption(args)),
+      );
+      return 0;
+    }
+    if (command === "memory" && subcommand === "attest") {
+      // Operator path of the provenance invariant (#113): an operator puts an
+      // attestation on the record so the entry derives guidance-eligible. The
+      // bare `attested_by` on the entry confers nothing without this event.
+      const entryId = positions[2];
+      if (!entryId) {
+        throw new Error("usage: memory attest <entry_id> --by <operator>");
+      }
+      const attestEntry = new MemoryEntryStore(database).get(entryId);
+      if (!attestEntry || attestEntry.workspace_id !== selectedWorkspace) {
+        throw new Error(`memory entry not found in workspace: ${entryId}`);
+      }
+      printJson(
+        write,
+        new PromotionService(database).attestMemory(entryId, {
+          attested_by: requireOption(args, "--by"),
+        }),
       );
       return 0;
     }

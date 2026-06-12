@@ -230,8 +230,11 @@ describe("corroboration-based ratification", () => {
 
   it("rejects corroboration of a resolved promotion candidate", () => {
     const run = seedRunningRun();
+    // Ratifies with no corroboration to reach the resolved state, so it opts
+    // into the 0 corroboration floor explicitly (#101 default is 1).
     const service = new PromotionService(database, {
       collective_memory_dir: join(tmpRoot, "collective_memory"),
+      min_corroboration: 0,
     });
     const candidate = seedPromotionFixtures(service, run);
     service.propose(candidate, {

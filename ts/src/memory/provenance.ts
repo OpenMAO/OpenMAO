@@ -61,6 +61,36 @@ export type MemoryTrustStores = {
 // is the explicitly human path into guidance, not a second self-assertion lane.
 const AGENT_ID_REGEX = /^agent_[0-9a-f]{32}$/;
 
+/** Deterministic idempotency key for an entry's operator-attestation event. */
+export function operatorAttestedIdempotencyKey(entryId: string): string {
+  return `${entryId}:operator_attested`;
+}
+
+/**
+ * Whether a resolvable `memory.operator_attested` event proves the attestation
+ * claimed by `provenance.attested_by`. Like the other two bases, operator
+ * attestation only counts when the store can resolve it: the deterministic
+ * attestation event must exist in the entry's workspace, name the same
+ * attestor (actor), and reference the entry. A bare `attested_by` with no such
+ * event does not resolve — a self-asserted string is not proof.
+ */
+function operatorAttestationResolves(
+  entry: MemoryEntry,
+  attestor: string,
+  events: EventStore,
+): boolean {
+  const event = events.getByIdempotencyKey(
+    entry.workspace_id,
+    operatorAttestedIdempotencyKey(entry.id),
+  );
+  return (
+    event !== null &&
+    event.kind === "memory.operator_attested" &&
+    event.actor === attestor &&
+    event.payload.refs.includes(entry.id)
+  );
+}
+
 /**
  * Derives the trust tier of a memory entry from its provenance refs. The tier
  * is computed, never writer-asserted: a ref only confers trust if the store
@@ -68,10 +98,13 @@ const AGENT_ID_REGEX = /^agent_[0-9a-f]{32}$/;
  *
  * 1. `provenance.capability_result_id` resolves in the CapabilityResultStore;
  * 2. `provenance.source_event_id` resolves in the EventStore;
- * 3. `provenance.attested_by` names an operator (non-blank, not an agent id).
+ * 3. `provenance.attested_by` is proven by a resolvable
+ *    `memory.operator_attested` event (see PromotionService.attestMemory) —
+ *    a bare self-asserted string is not proof.
  *
  * All supplied markers are evaluated (no short-circuit) so the derivation also
- * reports every forged/dangling ref, even ones outranked by a resolving ref.
+ * reports every forged/dangling/unproven ref, even ones outranked by a
+ * resolving ref.
  */
 export function deriveMemoryTrust(
   entry: MemoryEntry,
@@ -103,7 +136,14 @@ export function deriveMemoryTrust(
   const attestedBy = entry.provenance.attested_by;
   if (attestedBy !== null) {
     const attestor = attestedBy.trim();
-    if (attestor.length > 0 && !AGENT_ID_REGEX.test(attestor)) {
+    // The attestor must be a non-blank operator (never an agent id) AND be
+    // proven by a resolvable attestation event. A claim with no event is a
+    // supplied-but-unresolved marker, treated like any other dangling ref.
+    if (
+      attestor.length > 0 &&
+      !AGENT_ID_REGEX.test(attestor) &&
+      operatorAttestationResolves(entry, attestor, stores.events)
+    ) {
       basis ??= "operator_attestation";
     } else {
       unresolved.push(`operator_attestation:${attestedBy}`);
