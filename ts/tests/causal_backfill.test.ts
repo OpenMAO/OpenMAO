@@ -322,13 +322,14 @@ async function seedPreM0Fixture(): Promise<void> {
 
 /**
  * Re-stamp the file as schema v6. v7 changed no table shapes (it is a data-only
- * backfill) and v8 only adds the idempotently-created worker_credentials table
- * (irrelevant to the backfill, present on both sides of the migration), so a
- * freshly initialized file with the v6 stamp is byte-equivalent to a real
- * pre-M0 database for the migration's purposes.
+ * backfill); the worker_credentials table (#102) is added by idempotent DDL that
+ * runs on every open without bumping the version, so it is present on both sides
+ * of the migration and irrelevant to the backfill. A freshly initialized file
+ * with the v6 stamp is therefore byte-equivalent to a real pre-M0 database for
+ * the migration's purposes.
  */
 function stampAsV6(): void {
-  database.connection.prepare("DELETE FROM schema_version WHERE version > 6").run();
+  database.connection.prepare("DELETE FROM schema_version WHERE version = 7").run();
   database.connection
     .prepare(
       `INSERT OR IGNORE INTO schema_version (version, applied_at)
@@ -451,12 +452,12 @@ describe("v7 one-time causal backfill for pre-M0 events (#109)", () => {
     }
   });
 
-  it("stamps the current schema version and re-running the migration changes nothing", () => {
-    expect(database.connection.pragma("user_version", { simple: true })).toBe(8);
+  it("stamps schema version 7 and re-running the migration changes nothing", () => {
+    expect(database.connection.pragma("user_version", { simple: true })).toBe(7);
     const versions = database.connection
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as Array<{ version: number }>;
-    expect(versions.map((row) => row.version)).toEqual([6, 8]);
+    expect(versions.map((row) => row.version)).toEqual([6, 7]);
 
     const afterFirstRun = allPayloadJson();
     // Force a second pass (e.g. a restored backup re-running the migration):
@@ -464,7 +465,7 @@ describe("v7 one-time causal backfill for pre-M0 events (#109)", () => {
     database.connection.pragma("user_version = 6");
     reopenDatabase();
     expect(allPayloadJson()).toEqual(afterFirstRun);
-    expect(database.connection.pragma("user_version", { simple: true })).toBe(8);
+    expect(database.connection.pragma("user_version", { simple: true })).toBe(7);
   });
 
   it("lets the enriched emitter replay legacy events idempotently after the backfill", () => {
@@ -616,9 +617,10 @@ describe("v7 one-time causal backfill for pre-M0 events (#109)", () => {
     // synthesis is faithful only if the structure the backfill reads is identical
     // across versions — which is the migration's design: v7 is data-only (causal
     // backfill + drop/recreate of the byte-identical events_no_update trigger +
-    // version bump), adding no table, column, index, or trigger DDL, and v8 adds
-    // only the worker_credentials table via idempotent DDL that is present on
-    // BOTH sides of the comparison. Prove it: a freshly initialized database and
+    // version bump), adding no table, column, index, or trigger DDL. The
+    // worker_credentials table (#102) is created by idempotent DDL on every open
+    // without a version bump, so it is present on BOTH sides of the comparison and
+    // does not affect this check. Prove it: a freshly initialized database and
     // the fixture database that ran the full stamp-v6 → reopen → migrate cycle
     // (with real rewrites, so the trigger drop/recreate path executed) must agree
     // on every sqlite_master entry; only data and user_version may differ. If
@@ -641,6 +643,6 @@ describe("v7 one-time causal backfill for pre-M0 events (#109)", () => {
 
     expect(freshDdl.length).toBeGreaterThan(0);
     expect(structuralDdl(database)).toEqual(freshDdl);
-    expect(database.connection.pragma("user_version", { simple: true })).toBe(8);
+    expect(database.connection.pragma("user_version", { simple: true })).toBe(7);
   });
 });

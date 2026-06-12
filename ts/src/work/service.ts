@@ -423,6 +423,10 @@ export class WorkService {
       }
       assertNoSensitiveMaterial(input.input ?? {}, "bounded_work_envelope.input");
       const resourceGrants = input.resource_grants ?? {};
+      // Resource-grant values are operator-supplied free strings that ride the envelope into the
+      // append-only event log; screen them like every other free string so a secret-shaped grant
+      // value (or capability/field key) can never be persisted. Walks keys and every leaf value.
+      assertNoSensitiveMaterial(resourceGrants, "bounded_work_envelope.resource_grants");
       const envelopeId = input.id ?? newId("envelope");
       const taskEnvelopeId = input.run_id
         ? (input.task_envelope_id ?? this.taskEnvelopeIdForEnvelope(envelopeId))

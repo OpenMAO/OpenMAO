@@ -182,7 +182,7 @@ describe("TypeScript persistence", () => {
         "worker_credentials",
       ]),
     );
-    expect(userVersion).toBe(8);
+    expect(userVersion).toBe(7);
   });
 
   it("saves workspaces idempotently and rejects conflicting overwrites", async () => {

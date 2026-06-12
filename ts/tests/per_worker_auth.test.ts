@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createServer } from "../src/api/server.js";
-import { Database } from "../src/persistence/index.js";
+import { CapabilityCallSchema, CapabilityResultSchema } from "../src/contracts/index.js";
+import { CapabilityCallStore, CapabilityResultStore, Database } from "../src/persistence/index.js";
 import { WorkerAuthService } from "../src/security/worker-auth.js";
 import { WORKSPACE_ID } from "../src/spine/index.js";
 import {
@@ -70,6 +71,46 @@ function capabilityCallBody(overrides: Record<string, unknown> = {}): Record<str
     idempotency_key: "pwa:call",
     ...overrides,
   };
+}
+
+// Seed a completed capability call + its result for `workerId`, returning the result's id. Written
+// straight to the shared sqlite file (the server reads the same path) so the read-scoping route can
+// be probed deterministically without driving a full approve/execute cycle.
+function seedResultForWorker(suffix: string, workerId: string): string {
+  const callId = `capcall_${suffix}`;
+  const resultId = `capresult_${suffix}`;
+  const database = new Database(dbPath);
+  try {
+    new CapabilityCallStore(database).record(
+      CapabilityCallSchema.parse({
+        id: callId,
+        workspace_id: WORKSPACE_ID,
+        run_id: REFERENCE_RUN_ID,
+        capability_name: "mock.side_effect.record",
+        provider: "mock.side_effect",
+        input: { message: "seeded" },
+        requested_by: workerId,
+        task_id: REFERENCE_TASK_ID,
+        credential_handle: REFERENCE_CREDENTIAL_HANDLE,
+        side_effecting: true,
+        risk_level: "high",
+        idempotency_key: `pwa:seed:${suffix}`,
+      }),
+    );
+    new CapabilityResultStore(database).record(
+      CapabilityResultSchema.parse({
+        id: resultId,
+        workspace_id: WORKSPACE_ID,
+        run_id: REFERENCE_RUN_ID,
+        call_id: callId,
+        status: "ok",
+        output: { ok: true },
+      }),
+    );
+  } finally {
+    database.close();
+  }
+  return resultId;
 }
 
 beforeEach(async () => {
@@ -189,5 +230,33 @@ describe("per-worker auth", () => {
     );
     expect(requesters.has(REFERENCE_WORKER_ID)).toBe(true);
     expect(requesters.has("worker_other")).toBe(false);
+  });
+
+  it("does not let a worker read another worker's capability result via GET /capability-results", async () => {
+    // The route filters results to the caller worker's OWN call ids. Seed one result for another
+    // worker and one for the reference worker, then prove the worker's read returns only its own
+    // result id and never the other worker's — there is no by-id path that leaks across workers.
+    const otherResultId = seedResultForWorker("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "worker_other");
+    const ownResultId = seedResultForWorker(
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      REFERENCE_WORKER_ID,
+    );
+
+    const { status, json } = await req("GET", "/capability-results", workerHeaders());
+    expect(status).toBe(200);
+    const visibleIds = new Set((json as Array<{ id: string }>).map((r) => r.id));
+    expect(visibleIds.has(ownResultId)).toBe(true);
+    expect(visibleIds.has(otherResultId)).toBe(false);
+  });
+
+  it("rejects a whitespace-only operator actor over HTTP with 400 missing_actor", async () => {
+    // A blank actor cannot anchor an audit trail; the operator boundary treats "   " exactly like a
+    // missing actor header so merge order with the approval-integrity work can never regress it.
+    const { status, json } = await req("GET", "/capability-calls", {
+      "x-openmao-operator-token": OPERATOR_TOKEN,
+      "x-openmao-actor": "   ",
+    });
+    expect(status).toBe(400);
+    expect(json.error).toBe("missing_actor");
   });
 });

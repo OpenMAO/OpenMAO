@@ -11,6 +11,7 @@ import {
 } from "../src/contracts/index.js";
 import { Database } from "../src/persistence/index.js";
 import { createLocalCapabilityRegistry } from "../src/runtime/capabilities.js";
+import { SensitiveMaterialError } from "../src/security/sensitive-material.js";
 import { SpineService, WORKSPACE_ID } from "../src/spine/index.js";
 import { WorkService } from "../src/work/index.js";
 
@@ -199,5 +200,15 @@ describe("scoped resource grants", () => {
     // string matching blocks it so the provider can't read the array differently.
     const outcome = await outcomeFor(taskId, runId, { owner: "aeonbilal", repo: ["OpenMAO"] });
     expect(outcome).toBe("block");
+  });
+
+  it("rejects an envelope carrying a secret-shaped resource-grant value (never reaches the event log)", () => {
+    // Resource grants ride the envelope into the append-only event log; a secret-shaped grant value
+    // must be screened like every other operator-supplied free string before anything is persisted.
+    // Built at runtime so the literal token shape never appears in tracked source (hygiene check).
+    const tokenShaped = `ghp_${"a".repeat(36)}`;
+    expect(() => seedEnvelope({ [CAP]: { owner: ["aeonbilal"], repo: [tokenShaped] } })).toThrow(
+      SensitiveMaterialError,
+    );
   });
 });

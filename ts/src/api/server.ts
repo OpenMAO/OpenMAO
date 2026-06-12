@@ -210,7 +210,9 @@ function requestContext(
   // Operator token → full authority. Actor + workspace come from headers as before.
   if (tokenMatches(headerValue(request, TOKEN_HEADER), options.operatorToken)) {
     const actor = headerValue(request, ACTOR_HEADER);
-    if (!actor) {
+    // Reject missing AND whitespace-only actors: a blank actor cannot anchor an audit trail, so the
+    // operator boundary treats "   " exactly like an absent header (same 400 / missing_actor shape).
+    if (!actor || actor.trim().length === 0) {
       sendJson(response, 400, { error: "missing_actor" });
       return null;
     }
@@ -858,30 +860,41 @@ export function createServer(options: ServerOptions = {}) {
         }
         const body = await readJsonBody(request);
         const input = body.input;
-        sendJson(
-          response,
-          201,
-          new WorkService(database).createBoundedEnvelope({
-            id: typeof body.id === "string" ? body.id : null,
-            workspace_id: context.workspaceId,
-            work_item_id: approvalRoute.workEnvelopeId,
-            run_id: typeof body.run_id === "string" ? body.run_id : null,
-            worker_id: String(body.worker_id ?? ""),
-            issued_by: { actor_type: "operator", actor_id: context.actor, display_name: null },
-            allowed_capabilities: stringArray(body.allowed_capabilities),
-            resource_grants:
-              body.resource_grants &&
-              typeof body.resource_grants === "object" &&
-              !Array.isArray(body.resource_grants)
-                ? (body.resource_grants as ResourceGrants)
-                : null,
-            input:
-              input && typeof input === "object" && !Array.isArray(input)
-                ? (input as Record<string, unknown>)
-                : {},
-            idempotency_key: typeof body.idempotency_key === "string" ? body.idempotency_key : null,
-          }),
-        );
+        try {
+          sendJson(
+            response,
+            201,
+            new WorkService(database).createBoundedEnvelope({
+              id: typeof body.id === "string" ? body.id : null,
+              workspace_id: context.workspaceId,
+              work_item_id: approvalRoute.workEnvelopeId,
+              run_id: typeof body.run_id === "string" ? body.run_id : null,
+              worker_id: String(body.worker_id ?? ""),
+              issued_by: { actor_type: "operator", actor_id: context.actor, display_name: null },
+              allowed_capabilities: stringArray(body.allowed_capabilities),
+              resource_grants:
+                body.resource_grants &&
+                typeof body.resource_grants === "object" &&
+                !Array.isArray(body.resource_grants)
+                  ? (body.resource_grants as ResourceGrants)
+                  : null,
+              input:
+                input && typeof input === "object" && !Array.isArray(input)
+                  ? (input as Record<string, unknown>)
+                  : {},
+              idempotency_key:
+                typeof body.idempotency_key === "string" ? body.idempotency_key : null,
+            }),
+          );
+        } catch (error) {
+          // Mirror the capability route: scrub every error so a secret-shaped resource grant (or any
+          // other failure) can never echo secret-adjacent material. A sensitive-material rejection is
+          // a client error (400); anything else is a server error (500) — still scrubbed.
+          const message = safeErrorMessage(error instanceof Error ? error.message : String(error));
+          sendJson(response, error instanceof SensitiveMaterialError ? 400 : 500, {
+            error: message,
+          });
+        }
         return;
       }
       if (request.method === "GET" && approvalRoute.individualMemoryAgentId) {
