@@ -7,7 +7,7 @@ import {
 
 import { ChiefOfStaffService } from "../chief_of_staff/index.js";
 import { utcNow } from "../contracts/index.js";
-import { ApprovalService } from "../governance/index.js";
+import { ApprovalService, SelfApprovalError } from "../governance/index.js";
 import { IngestionService } from "../ingestion/index.js";
 import { LearningService } from "../learning/index.js";
 import { MemoryRetrievalService, PromotionService } from "../memory/index.js";
@@ -1019,6 +1019,16 @@ export function createServer(options: ServerOptions = {}) {
       }
       sendJson(response, 404, { error: "not_found" });
     } catch (error) {
+      if (error instanceof SelfApprovalError) {
+        // Separation of duties: the approver is the same identity that requested the approval.
+        // That is a caller-side conflict, not a server fault — map it to 409 with a stable code
+        // and a safe message rather than echoing the internal exception text (#101).
+        sendJson(response, 409, {
+          error: "self_approval_forbidden",
+          message: "approver must differ from requester",
+        });
+        return;
+      }
       sendJson(response, 500, {
         error: error instanceof Error ? error.message : String(error),
       });

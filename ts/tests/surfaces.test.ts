@@ -604,6 +604,37 @@ describe("TypeScript operator surfaces", () => {
     }
   });
 
+  it("maps proposer self-approval to 409 over HTTP", async () => {
+    const server = createServer({ dbPath, operatorToken });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    try {
+      // Suspend the demo run at the promotion gate; the approval is requested_by COORDINATOR_AGENT_ID.
+      const demo = (await fetch(`${baseUrl}/runs/demo`, {
+        method: "POST",
+        headers: operatorHeaders,
+      }).then((response) => response.json())) as { status: string };
+      expect(demo.status).toBe("suspended_approval");
+
+      // The proposer approving their own request is a separation-of-duties conflict: 409, not 500,
+      // and the body must carry the stable code without leaking the internal exception message (#101).
+      const selfApproval = await fetch(`${baseUrl}/approvals/${PROMOTION_APPROVAL_ID}/approve`, {
+        method: "POST",
+        headers: { ...operatorHeaders, "x-openmao-actor": COORDINATOR_AGENT_ID },
+      });
+      const selfApprovalBody = (await selfApproval.json()) as { error: string; message?: string };
+
+      expect(selfApproval.status).toBe(409);
+      expect(selfApproval.status).not.toBe(500);
+      expect(selfApprovalBody.error).toBe("self_approval_forbidden");
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
   it("serves work substrate operations over HTTP", async () => {
     const server = createServer({ dbPath, operatorToken });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
