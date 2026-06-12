@@ -259,4 +259,30 @@ describe("per-worker auth", () => {
     expect(status).toBe(400);
     expect(json.error).toBe("missing_actor");
   });
+
+  it("maps an idempotency-key conflict (same key, different id) to 409, not 500", async () => {
+    // Reusing an idempotency key for a DIFFERENT call id is a client-side conflict. The store raises
+    // CapabilityCallConflictError; the route must surface it as 409 with a scrubbed code, never a 500.
+    const first = await req(
+      "POST",
+      "/capability-calls",
+      operatorHeaders(),
+      capabilityCallBody({
+        id: "capcall_11111111111111111111111111111111",
+        idempotency_key: "pwa:conflict",
+      }),
+    );
+    expect(first.status).toBe(200);
+    const conflict = await req(
+      "POST",
+      "/capability-calls",
+      operatorHeaders(),
+      capabilityCallBody({
+        id: "capcall_22222222222222222222222222222222",
+        idempotency_key: "pwa:conflict",
+      }),
+    );
+    expect(conflict.status).toBe(409);
+    expect(conflict.json.error).toBe("capability_call_conflict");
+  });
 });

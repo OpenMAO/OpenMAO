@@ -22,7 +22,9 @@ import { OrgChangeService } from "../org/index.js";
 import {
   AgentStore,
   BoundedWorkEnvelopeStore,
+  CapabilityCallConflictError,
   CapabilityCallStore,
+  CapabilityResultConflictError,
   CapabilityResultStore,
   CapabilityStore,
   type Database,
@@ -482,6 +484,17 @@ export function createServer(options: ServerOptions = {}) {
           const invocation = await createConfiguredCapabilityRegistry(database).invoke(call);
           sendJson(response, 200, invocation);
         } catch (error) {
+          // Reusing an idempotency key with a DIFFERENT call/result id is a client-side conflict, not
+          // a server fault: surface it as 409 with a stable, detail-free code (never echo internal
+          // text). Checked before the generic fallback below.
+          if (error instanceof CapabilityCallConflictError) {
+            sendJson(response, 409, { error: "capability_call_conflict" });
+            return;
+          }
+          if (error instanceof CapabilityResultConflictError) {
+            sendJson(response, 409, { error: "capability_result_conflict" });
+            return;
+          }
           // Scrub EVERY error (not only CapabilityRegistryError) so a sensitive-material or any other
           // error can never echo a secret-adjacent string into the response. Registry rejections are
           // client errors (400); anything else is a server error (500) — still scrubbed.
