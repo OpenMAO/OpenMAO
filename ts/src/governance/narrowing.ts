@@ -130,7 +130,12 @@ export class NarrowingService {
       const rejections = new Map<string, string[]>();
       const violations = new Map<string, string[]>();
       for (const event of this.events.listForWorkspace(input.workspace_id)) {
-        if (event.timestamp < windowStart || event.timestamp > now) {
+        // Normalize the event timestamp the same way the window bounds are (#120,
+        // defense-in-depth): comparing two values normalized through the same helper keeps a
+        // sub-second or alternate-offset timestamp from sorting wrongly against the bounds.
+        // Not currently triggerable — every writer stamps second-precision utcNow.
+        const eventInstant = normalizeInstant(event.timestamp);
+        if (eventInstant < windowStart || eventInstant > now) {
           continue;
         }
         const rejected = this.rejectedCapabilityTarget(event);
@@ -165,11 +170,25 @@ export class NarrowingService {
         const targets = [...evaluation.evidenceByTarget.entries()].sort(([a], [b]) =>
           a < b ? -1 : a > b ? 1 : 0,
         );
-        for (const [target, evidence] of targets) {
+        for (const [target, windowedEvidence] of targets) {
+          const { actor_id, capability_name } = decodeTarget(target);
+          // Drop evidence a human already adjudicated (#120, anti-flap): any event id carried by
+          // a LIFTED suspension for this exact (actor, capability) is excluded before the
+          // threshold test. Without this the lifted suspension's own evidence still sits inside
+          // the window, so a single fresh failure would re-suspend at an effective threshold of
+          // one and defeat the lift. Only a fresh full N of non-adjudicated evidence re-suspends.
+          const adjudicated = this.adjudicatedEvidence(
+            input.workspace_id,
+            actor_id,
+            capability_name,
+          );
+          const evidence =
+            adjudicated.size === 0
+              ? windowedEvidence
+              : windowedEvidence.filter((eventId) => !adjudicated.has(eventId));
           if (evidence.length < evaluation.threshold) {
             continue;
           }
-          const { actor_id, capability_name } = decodeTarget(target);
           const suspension = this.suspend({
             workspace_id: input.workspace_id,
             actor_id,
@@ -344,6 +363,24 @@ export class NarrowingService {
       return null;
     }
     return { actor_id: call.requested_by, capability_name: call.capability_name };
+  }
+
+  // The set of evidence event ids a human has already adjudicated for an (actor, capability):
+  // the union of `evidence_refs` across every LIFTED suspension for that grant. The scan
+  // subtracts these from a candidate evidence set so a ratified lift cannot be undone by a
+  // single new failure landing while the lifted suspension's evidence is still in-window.
+  private adjudicatedEvidence(
+    workspaceId: string,
+    actorId: string,
+    capabilityName: string,
+  ): Set<string> {
+    const adjudicated = new Set<string>();
+    for (const lifted of this.suspensions.listLifted(workspaceId, actorId, capabilityName)) {
+      for (const eventId of lifted.evidence_refs) {
+        adjudicated.add(eventId);
+      }
+    }
+    return adjudicated;
   }
 }
 

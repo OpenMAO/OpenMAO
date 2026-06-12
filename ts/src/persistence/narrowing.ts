@@ -109,6 +109,21 @@ export class GrantSuspensionStore {
     return row ? GrantSuspensionSchema.parse(JSON.parse(row.payload_json)) : null;
   }
 
+  // Lifted suspensions for a single (workspace, actor, capability). The narrowing scan reads
+  // these to drop already-adjudicated evidence (#120): once a human lifts a suspension, the
+  // events that justified it can never re-suspend the same grant, so a single new failure
+  // cannot immediately undo the lift.
+  listLifted(workspaceId: string, actorId: string, capabilityName: string): GrantSuspension[] {
+    const rows = this.database.connection
+      .prepare(
+        `SELECT payload_json FROM grant_suspensions
+         WHERE workspace_id = ? AND actor_id = ? AND capability_name = ? AND status = 'lifted'
+         ORDER BY id`,
+      )
+      .all(workspaceId, actorId, capabilityName) as PayloadRow[];
+    return rows.map((row) => GrantSuspensionSchema.parse(JSON.parse(row.payload_json)));
+  }
+
   listForWorkspace(workspaceId: string): GrantSuspension[] {
     const rows = this.database.connection
       .prepare("SELECT payload_json FROM grant_suspensions WHERE workspace_id = ? ORDER BY id")

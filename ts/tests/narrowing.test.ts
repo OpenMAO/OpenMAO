@@ -610,4 +610,166 @@ describe("asymmetric autonomy narrowing", () => {
     expect(all[0]?.status).toBe("active");
     expect(eventKinds().filter((kind) => kind === "autonomy.grant_suspended")).toHaveLength(1);
   });
+
+  it("blocks an approved call at resume when its grant was suspended after the approval went pending", async () => {
+    await seedBase();
+    await registerResearchCapability("approval_required");
+    const provider = new MockProvider();
+    const registry = new CapabilityRegistryService(
+      database,
+      new GovernanceService(database, await orgRegistry()),
+      [provider, new MockSideEffectProvider({ cred_mock_side_effect: "test_secret" })],
+    );
+    const narrowing = new NarrowingService(database);
+    ratify({ rejection_threshold: 2 });
+
+    await driveRejectedAgentCall(registry);
+    await driveRejectedAgentCall(registry);
+    // A third call goes pending BEFORE any suspension exists; its approval is the resume target.
+    const pendingApproval = await requestAgentApproval(registry);
+    const suspension = narrowing.scan({ workspace_id: WORKSPACE }).suspensions[0];
+    if (!suspension) {
+      throw new Error("expected an active suspension");
+    }
+
+    // A human explicitly APPROVES the call after the suspension — narrowing is reversible only by
+    // a ratified lift, so resume must still block and must never execute the provider.
+    new ApprovalService(database).approve(pendingApproval, { workspace_id: WORKSPACE });
+    const resumed = await registry.resumeApprovedCall(pendingApproval, { workspace_id: WORKSPACE });
+
+    expect(resumed.result?.status).toBe("blocked");
+    expect(resumed.result?.error).toBe(
+      `Capability grant is suspended: ${RESEARCH_CAPABILITY} (suspension ${suspension.id})`,
+    );
+    expect(provider.executedCallIds).toEqual([]);
+    expect(eventKinds()).not.toContain("capability.completed");
+  });
+
+  it("blocks an approved worker call at resume when its grant was suspended after approval", async () => {
+    await seedBase();
+    registerSideEffectCapability();
+    seedWorker();
+    const provider = new MockSideEffectProvider({ cred_mock_side_effect: "test_secret" });
+    const registry = new CapabilityRegistryService(
+      database,
+      new GovernanceService(database, await orgRegistry()),
+      [new MockProvider(), provider],
+    );
+    const narrowing = new NarrowingService(database);
+    ratify({ rejection_threshold: 1 });
+
+    // Rejection evidence first: this worker run is failed by the rejection (releasing its run
+    // lock), so a later run can go pending. No scan yet, so no suspension exists.
+    const reject = await startRun({
+      to_agent: WORKER,
+      allowed_capabilities: [SIDE_EFFECT_CAPABILITY],
+    });
+    const rejectInvocation = await registry.invoke(workerCall(reject.run, reject.taskId));
+    new ApprovalService(database).reject(rejectInvocation.approval_id ?? "", {
+      workspace_id: WORKSPACE,
+      actor: "test_operator",
+    });
+
+    // A fresh worker call goes pending BEFORE the suspension is scanned into existence.
+    const { run, taskId } = await startRun({
+      to_agent: WORKER,
+      allowed_capabilities: [SIDE_EFFECT_CAPABILITY],
+    });
+    const pending = await registry.invoke(workerCall(run, taskId));
+    expect(pending.decision.outcome).toBe("require_approval");
+    const pendingApprovalId = pending.approval_id ?? "";
+
+    const suspension = narrowing.scan({ workspace_id: WORKSPACE }).suspensions[0];
+    if (!suspension) {
+      throw new Error("expected an active worker suspension");
+    }
+
+    new ApprovalService(database).approve(pendingApprovalId, { workspace_id: WORKSPACE });
+    const resumed = await registry.resumeApprovedCall(pendingApprovalId, {
+      workspace_id: WORKSPACE,
+    });
+
+    expect(resumed.result?.status).toBe("blocked");
+    expect(resumed.result?.error).toBe(
+      `Capability grant is suspended: ${SIDE_EFFECT_CAPABILITY} (suspension ${suspension.id})`,
+    );
+    expect(provider.executedCallIds).toEqual([]);
+  });
+
+  it("does not re-suspend on a single new failure after a lift, only on a fresh full threshold", async () => {
+    await seedBase();
+    await registerResearchCapability("approval_required");
+    const registry = await makeRegistry();
+    const narrowing = new NarrowingService(database);
+    ratify({ rejection_threshold: 2, cooldown_seconds: 60 });
+
+    await driveRejectedAgentCall(registry);
+    await driveRejectedAgentCall(registry);
+    const suspension = narrowing.scan({ workspace_id: WORKSPACE }).suspensions[0];
+    if (!suspension) {
+      throw new Error("expected an active suspension");
+    }
+    const afterCooldown = formatUtc(Date.parse(suspension.cooldown_until) + 1000);
+    narrowing.lift(suspension.id, {
+      actor: "operator:test",
+      note: "root cause fixed",
+      now: afterCooldown,
+    });
+
+    // One new failure lands while the lifted suspension's two evidence events are still in the
+    // window. Effective non-adjudicated evidence is 1 (< threshold 2): must NOT re-suspend.
+    await driveRejectedAgentCall(registry);
+    expect(narrowing.scan({ workspace_id: WORKSPACE, now: afterCooldown }).suspensions).toEqual([]);
+    expect(
+      new GrantSuspensionStore(database)
+        .listForWorkspace(WORKSPACE)
+        .filter((s) => s.status === "active"),
+    ).toEqual([]);
+
+    // A second fresh failure makes a full threshold of NON-adjudicated evidence: re-suspends.
+    await driveRejectedAgentCall(registry);
+    const reSuspended = narrowing.scan({ workspace_id: WORKSPACE, now: afterCooldown }).suspensions;
+    expect(reSuspended).toHaveLength(1);
+    expect(reSuspended[0]?.id).not.toBe(suspension.id);
+    expect(reSuspended[0]?.evidence_refs).not.toContain(suspension.evidence_refs[0]);
+    expect(reSuspended[0]?.evidence_refs).not.toContain(suspension.evidence_refs[1]);
+  });
+
+  it("does not let the gate's own suspended-grant block feed a second suspension", async () => {
+    await seedBase();
+    await registerResearchCapability("approval_required");
+    const registry = await makeRegistry();
+    const narrowing = new NarrowingService(database);
+    // Suspend the GRANTED capability via rejections; arm the violations trigger at a single block
+    // so any miscounted gate block would try to create a second (policy_violations) suspension.
+    ratify({ rejection_threshold: 2, violation_threshold: 1 });
+
+    await driveRejectedAgentCall(registry);
+    await driveRejectedAgentCall(registry);
+    const suspension = narrowing.scan({ workspace_id: WORKSPACE }).suspensions[0];
+    if (!suspension) {
+      throw new Error("expected an active suspension");
+    }
+
+    // A subsequent call to the now-suspended grant passes the grant check, then hits the
+    // suspension gate and is blocked with the suspension reason (a policy.decision event). That
+    // block must NOT be counted as a fresh policy_violation — the scan excludes decisions whose
+    // reason carries the suspended-grant prefix, so the gate can never feed its own trigger.
+    const { run, taskId } = await startRun({
+      to_agent: RESEARCHER,
+      allowed_capabilities: [RESEARCH_CAPABILITY],
+    });
+    const blocked = await registry.invoke(agentCall(run, taskId));
+    expect(blocked.decision.outcome).toBe("block");
+    expect(blocked.decision.reason).toBe(
+      `Capability grant is suspended: ${RESEARCH_CAPABILITY} (suspension ${suspension.id})`,
+    );
+
+    // Rescan: the gate block produced no second suspension; exactly the original remains.
+    expect(narrowing.scan({ workspace_id: WORKSPACE }).suspensions).toEqual([]);
+    expect(new GrantSuspensionStore(database).listForWorkspace(WORKSPACE).map((s) => s.id)).toEqual(
+      [suspension.id],
+    );
+    expect(eventKinds().filter((kind) => kind === "autonomy.grant_suspended")).toHaveLength(1);
+  });
 });
