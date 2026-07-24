@@ -1250,6 +1250,95 @@ function consoleHtml(): string {
     }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+    select.input { cursor: pointer; }
+    .con-ws select.input { width: auto; min-width: 200px; max-width: 280px; }
+    .nbadge { margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill); background: var(--accent); color: var(--fg-on-accent); font-size: 10px; font-family: var(--font-mono); font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+
+    /* Triage Home */
+    .home-grid { display: grid; grid-template-columns: 1fr 300px; gap: 16px; align-items: start; }
+    .cap-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-3); margin-bottom: 9px; }
+    .triage-list { display: flex; flex-direction: column; gap: 8px; }
+    .triage-item { border: 1px solid var(--line); border-radius: var(--r-md); padding: 13px 15px; background: var(--bg); display: flex; gap: 13px; align-items: flex-start; cursor: pointer; transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+    .triage-item:hover { border-color: var(--accent); box-shadow: var(--shadow-sm); }
+    .triage-item.urgent { border-left: 3px solid var(--state-pending-fg); }
+    .triage-item.critical { border-left: 3px solid var(--danger); }
+    .triage-icon { width: 32px; height: 32px; border-radius: var(--r); display: flex; align-items: center; justify-content: center; flex: none; }
+    .triage-icon svg { width: 15px; height: 15px; }
+    .triage-icon.tap { background: var(--state-pending-bg); } .triage-icon.tap svg { stroke: var(--state-pending-fg); }
+    .triage-icon.tbl { background: var(--state-danger-bg); } .triage-icon.tbl svg { stroke: var(--state-danger-fg); }
+    .triage-icon.tkn { background: var(--accent-weak); } .triage-icon.tkn svg { stroke: var(--accent); }
+    .triage-icon.tco { background: var(--state-info-bg); } .triage-icon.tco svg { stroke: var(--state-info-fg); }
+    .triage-main { min-width: 0; flex: 1; }
+    .tt { font-size: 13.5px; font-weight: 500; margin-bottom: 2px; }
+    .ts { font-size: 12px; color: var(--fg-2); overflow-wrap: anywhere; }
+    .triage-cta { margin-left: auto; flex: none; align-self: center; }
+    .pulse-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+    .pulse-item:last-child { border-bottom: 0; }
+    .pulse-label { color: var(--fg-2); }
+    .pulse-value { font-weight: 500; font-variant-numeric: tabular-nums; }
+    .all-clear { border: 1px solid var(--state-success-line); background: var(--state-success-bg); color: var(--state-success-fg); border-radius: var(--r-md); padding: 18px 16px; display: flex; gap: 10px; align-items: center; font-size: 13.5px; }
+    .all-clear svg { width: 18px; height: 18px; flex: none; }
+
+    /* Agent role cards */
+    .agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+    .agent-card { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg); padding: 17px; }
+    .ac-hd { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
+    .ac-avatar { width: 38px; height: 38px; border-radius: var(--r-md); display: flex; align-items: center; justify-content: center; flex: none; background: var(--accent-weak); color: var(--accent); }
+    .ac-avatar svg { width: 19px; height: 19px; }
+    .ac-name { font-size: 14px; font-weight: 600; }
+    .ac-role { font-size: 12px; color: var(--fg-2); margin-top: 1px; }
+    .ac-tools { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 11px; }
+    .ac-now { font-size: 12.5px; color: var(--fg-2); margin-bottom: 12px; overflow-wrap: anywhere; }
+    .ac-stats { display: flex; gap: 18px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .ac-stat .asv { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+    .ac-stat .ask { font-family: var(--font-mono); font-size: 10px; color: var(--fg-3); margin-top: 1px; }
+
+    /* Evidence-pack approvals */
+    .ap-pack { border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
+    .ap-pack + .ap-pack { margin-top: 14px; }
+    .ap-pack.urgent { border-left: 3px solid var(--state-pending-fg); }
+    .ap-hd { padding: 13px 15px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: flex-start; }
+    .ap-icon { width: 34px; height: 34px; border-radius: var(--r); background: var(--state-pending-bg); display: flex; align-items: center; justify-content: center; flex: none; }
+    .ap-icon svg { width: 16px; height: 16px; stroke: var(--state-pending-fg); }
+    .ap-title { font-size: 14px; font-weight: 600; margin-bottom: 2px; overflow-wrap: anywhere; }
+    .ap-meta { font-size: 12px; color: var(--fg-2); }
+    .ap-age { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); flex: none; padding-top: 2px; }
+    .ap-ev { padding: 13px 15px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+    .ap-ev-row { display: flex; gap: 10px; font-size: 12.5px; align-items: flex-start; }
+    .ap-ev-label { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-3); width: 92px; flex: none; padding-top: 2px; }
+    .ap-ev-val { color: var(--fg-1); line-height: 1.45; min-width: 0; overflow-wrap: anywhere; }
+    .ap-acts { padding: 11px 15px; display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
+    .ap-acts .spacer { flex: 1; }
+
+    /* Knowledge / ratification */
+    .know-list { display: flex; flex-direction: column; gap: 8px; }
+    .know-item { border: 1px solid var(--line); border-radius: var(--r-md); padding: 13px 15px; }
+    .know-item.rq { border-left: 3px solid var(--state-pending-fg); }
+    .ki-hd { display: flex; align-items: flex-start; gap: 11px; }
+    .ki-conf { width: 36px; height: 36px; border-radius: var(--r); background: var(--accent-weak); display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: var(--accent); flex: none; }
+    .ki-title { font-size: 13.5px; font-weight: 500; margin-bottom: 3px; line-height: 1.35; overflow-wrap: anywhere; }
+    .ki-prov { font-size: 12px; color: var(--fg-2); overflow-wrap: anywhere; }
+    .ki-acts { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+
+    /* Permission scope grid */
+    .cap-grid { border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
+    .cap-row { display: flex; padding: 9px 14px; border-bottom: 1px solid var(--line); font-size: 13px; gap: 12px; align-items: center; }
+    .cap-row:last-child { border-bottom: 0; }
+    .cap-row.hdr { background: var(--surface-1); font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); }
+    .cap-name { flex: 1; font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+    .cap-sub { font-size: 11.5px; color: var(--fg-2); margin-top: 1px; font-weight: 400; }
+    .p-allow { color: var(--state-success-fg); font-family: var(--font-mono); font-size: 11.5px; font-weight: 500; }
+    .p-ask { color: var(--state-pending-fg); font-family: var(--font-mono); font-size: 11.5px; font-weight: 500; }
+    .p-deny { color: var(--state-danger-fg); font-family: var(--font-mono); font-size: 11.5px; font-weight: 500; }
+
+    /* Empty states that invite the next action */
+    .empty-cta { border: 1px dashed var(--line-strong); border-radius: var(--r-md); padding: 30px 24px; text-align: center; background: var(--surface-1); }
+    .empty-cta .ec-ico { width: 32px; height: 32px; margin: 0 auto 12px; color: var(--fg-3); }
+    .empty-cta .ec-ico svg { width: 32px; height: 32px; }
+    .empty-cta .ec-title { font-size: 14px; font-weight: 600; margin-bottom: 5px; }
+    .empty-cta .ec-body { font-size: 13px; color: var(--fg-2); line-height: 1.5; max-width: 420px; margin: 0 auto 14px; }
+    .dev-name { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-3); margin-left: 6px; }
+
     @media (max-width: 760px) {
       .con-header { flex-wrap: wrap; }
       .con-toolbar { margin-left: 0; width: 100%; }
@@ -1257,6 +1346,7 @@ function consoleHtml(): string {
       .con-nav { border-right: 0; border-bottom: 1px solid var(--line); flex-direction: row; flex-wrap: wrap; }
       .con-nav .navcap { width: 100%; }
       .statgrid { grid-template-columns: repeat(2, 1fr); }
+      .home-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -1269,11 +1359,12 @@ function consoleHtml(): string {
         <span class="kicker">operator console</span>
       </div>
       <div class="con-ws">
-        <span class="wsname">${WORKSPACE_ID}</span>
+        <select id="ws-switcher" class="input" aria-label="Workspace"></select>
         <span id="autonomy"></span>
       </div>
       <div class="con-toolbar">
         <input id="token-input" class="input" type="password" autocomplete="off" placeholder="Operator token" aria-label="Operator token" />
+        <button class="btn btn-ghost btn-sm" id="dev-names" aria-pressed="false" title="Reveal the underlying kernel terms">Developer names</button>
         <button class="btn btn-ghost btn-sm" id="reset-token">Reset</button>
         <button class="btn btn-sm" id="refresh">Refresh</button>
         <button class="btn btn-icon" id="theme-toggle" aria-label="Toggle theme"></button>
@@ -1281,31 +1372,32 @@ function consoleHtml(): string {
     </header>
     <div class="con-main">
       <nav class="con-nav" aria-label="Console views">
-        <div class="navcap">Govern</div>
-        <button class="navbtn" data-view="world" data-icon="globe" aria-pressed="true"><span class="ico"></span>World</button>
-        <button class="navbtn" data-view="runs" data-icon="play" aria-pressed="false"><span class="ico"></span>Runs</button>
-        <button class="navbtn" data-view="work" data-icon="list-checks" aria-pressed="false"><span class="ico"></span>Work</button>
-        <button class="navbtn" data-view="agents" data-icon="bot" aria-pressed="false"><span class="ico"></span>Agents</button>
-        <button class="navbtn" data-view="chiefOfStaff" data-icon="bell" aria-pressed="false"><span class="ico"></span>Chief of Staff</button>
-        <button class="navbtn" data-view="cadences" data-icon="repeat" aria-pressed="false"><span class="ico"></span>Cadences</button>
-        <div class="navcap">Review</div>
-        <button class="navbtn" data-view="approvals" data-icon="shield-check" aria-pressed="false"><span class="ico"></span>Approvals</button>
-        <button class="navbtn" data-view="promotions" data-icon="arrow-up-circle" aria-pressed="false"><span class="ico"></span>Promotions</button>
-        <button class="navbtn" data-view="learning" data-icon="git-branch" aria-pressed="false"><span class="ico"></span>Learning</button>
-        <div class="navcap">Record</div>
-        <button class="navbtn" data-view="memory" data-icon="database" aria-pressed="false"><span class="ico"></span>Memory</button>
-        <button class="navbtn" data-view="search" data-icon="search" aria-pressed="false"><span class="ico"></span>Memory Search</button>
-        <button class="navbtn" data-view="capabilities" data-icon="layers" aria-pressed="false"><span class="ico"></span>Capabilities</button>
-        <button class="navbtn" data-view="capabilityCalls" data-icon="arrow-right-left" aria-pressed="false"><span class="ico"></span>Capability Calls</button>
-        <button class="navbtn" data-view="capabilityResults" data-icon="check-check" aria-pressed="false"><span class="ico"></span>Capability Results</button>
-        <button class="navbtn" data-view="events" data-icon="activity" aria-pressed="false"><span class="ico"></span>Events</button>
-        <button class="navbtn" data-view="traces" data-icon="git-commit-horizontal" aria-pressed="false"><span class="ico"></span>Traces</button>
+        <button class="navbtn" data-view="home" data-icon="home" aria-pressed="true"><span class="ico"></span><span class="navlabel">Home</span><span class="nbadge" id="home-badge" hidden></span></button>
+        <div class="navcap">Work</div>
+        <button class="navbtn" data-view="work" data-icon="list-checks" aria-pressed="false"><span class="ico"></span><span class="navlabel">Tasks</span></button>
+        <div class="navcap">Org</div>
+        <button class="navbtn" data-view="agents" data-icon="bot" aria-pressed="false"><span class="ico"></span><span class="navlabel">Agents</span></button>
+        <div class="navcap">Knowledge</div>
+        <button class="navbtn" data-view="memory" data-icon="database" aria-pressed="false"><span class="ico"></span><span class="navlabel">What the org has learned</span></button>
+        <button class="navbtn" data-view="search" data-icon="search" aria-pressed="false"><span class="ico"></span><span class="navlabel">Search knowledge</span></button>
+        <div class="navcap">Governance</div>
+        <button class="navbtn" data-view="approvals" data-icon="shield-check" aria-pressed="false"><span class="ico"></span><span class="navlabel">Approvals</span><span class="nbadge" id="appr-badge" hidden></span></button>
+        <button class="navbtn" data-view="promotions" data-icon="arrow-up-circle" aria-pressed="false"><span class="ico"></span><span class="navlabel">Ratify knowledge</span></button>
+        <button class="navbtn" data-view="learning" data-icon="git-branch" aria-pressed="false"><span class="ico"></span><span class="navlabel">Suggested improvements</span></button>
+        <button class="navbtn" data-view="cadences" data-icon="repeat" aria-pressed="false"><span class="ico"></span><span class="navlabel">Schedules</span></button>
+        <div class="navcap">Audit</div>
+        <button class="navbtn" data-view="runs" data-icon="play" aria-pressed="false"><span class="ico"></span><span class="navlabel">Runs</span></button>
+        <button class="navbtn" data-view="events" data-icon="activity" aria-pressed="false"><span class="ico"></span><span class="navlabel">Audit trail</span></button>
+        <button class="navbtn" data-view="traces" data-icon="git-commit-horizontal" aria-pressed="false"><span class="ico"></span><span class="navlabel">Traces</span></button>
+        <button class="navbtn" data-view="capabilities" data-icon="layers" aria-pressed="false"><span class="ico"></span><span class="navlabel">Tool actions</span></button>
+        <button class="navbtn" data-view="capabilityCalls" data-icon="arrow-right-left" aria-pressed="false"><span class="ico"></span><span class="navlabel">Actions requested</span></button>
+        <button class="navbtn" data-view="chiefOfStaff" data-icon="bell" aria-pressed="false"><span class="ico"></span><span class="navlabel">Chief of Staff log</span></button>
       </nav>
       <section class="con-section">
         <div class="con-titlerow">
           <div>
-            <h2 id="view-title">World</h2>
-            <div class="sub" id="view-sub">${WORKSPACE_ID}</div>
+            <h2 id="view-title">Home</h2>
+            <div class="sub" id="view-sub"></div>
           </div>
           <div class="con-actions" id="view-actions"></div>
         </div>
@@ -1345,7 +1437,14 @@ function consoleHtml(): string {
       "check-circle": svgIcon('<path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/>'),
       search: svgIcon('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
       bell: svgIcon('<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.41 5.956-2.738 7.326"/>'),
-      repeat: svgIcon('<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>')
+      repeat: svgIcon('<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>'),
+      home: svgIcon('<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>'),
+      brain: svgIcon('<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/>'),
+      "alert-triangle": svgIcon('<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+      info: svgIcon('<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>'),
+      inbox: svgIcon('<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'),
+      "arrow-right": svgIcon('<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>'),
+      sparkles: svgIcon('<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z"/>')
     };
 
     var STATE_FAMILY = {
@@ -1466,22 +1565,54 @@ function consoleHtml(): string {
 
     var tokenInput = document.getElementById("token-input");
     var themeToggle = document.getElementById("theme-toggle");
+    var devNamesBtn = document.getElementById("dev-names");
+    var wsSwitcher = document.getElementById("ws-switcher");
     var mount = document.getElementById("view");
     var viewTitle = document.getElementById("view-title");
     var viewSub = document.getElementById("view-sub");
     var viewActions = document.getElementById("view-actions");
     var autonomySlot = document.getElementById("autonomy");
     var toastEl = document.getElementById("toast");
-    var activeView = "world";
+    var activeView = "home";
     var orgState = null;
+    var rolesById = {};
+    var agentsById = {};
     var toastTimer = null;
+    var devNames = localStorage.getItem("openmaoDevNames") === "1";
+    var workspaces = [];
+    var selectedWorkspace = sessionStorage.getItem("openmaoWorkspace") || WORKSPACE_ID;
 
-    var TITLES = {
-      world: "World", runs: "Runs", work: "Work", agents: "Agents", approvals: "Approvals",
-      promotions: "Promotions", learning: "Learning", memory: "Memory", capabilities: "Capabilities",
-      capabilityCalls: "Capability Calls", capabilityResults: "Capability Results", events: "Events", traces: "Traces",
-      search: "Memory Search", chiefOfStaff: "Chief of Staff", cadences: "Cadences"
+    // Operator-facing vocabulary layer (docs/OPERATOR_CONSOLE_REDESIGN.md §2.1).
+    // op = the operator label; dev = the underlying kernel term revealed by the toggle.
+    var VOCAB = {
+      home: { op: "Home" },
+      work: { op: "Tasks", dev: "WorkItem" },
+      agents: { op: "Agents", dev: "Agent / Role" },
+      memory: { op: "What the org has learned", dev: "Collective memory" },
+      search: { op: "Search knowledge", dev: "Memory search" },
+      approvals: { op: "Approvals", dev: "ApprovalRequest" },
+      promotions: { op: "Ratify knowledge", dev: "Promotion candidates" },
+      learning: { op: "Suggested improvements", dev: "OrgChangeProposal" },
+      cadences: { op: "Schedules", dev: "Cadence" },
+      runs: { op: "Runs", dev: "Run" },
+      events: { op: "Audit trail", dev: "Append-only events" },
+      traces: { op: "Traces", dev: "Trace" },
+      capabilities: { op: "Tool actions", dev: "Capability" },
+      capabilityCalls: { op: "Actions requested", dev: "CapabilityCall / Result" },
+      chiefOfStaff: { op: "Chief of Staff log", dev: "Notifications" }
     };
+    var SUBS = {
+      home: "what needs you", work: "delegated to agents, governed by approvals",
+      agents: "your AI teammates and their track record", memory: "institutional knowledge with provenance",
+      search: "collective + shared memory", approvals: "decide in a glance — evidence packs",
+      promotions: "knowledge waiting to enter org memory", learning: "the org proposing changes to itself",
+      cadences: "recurring Chief-of-Staff sweeps", runs: "every execution attempt",
+      events: "human-readable, reversible history", traces: "per-node execution detail",
+      capabilities: "governed tool actions and their default permission",
+      capabilityCalls: "what agents asked to do and the result",
+      chiefOfStaff: "your minimum-workload oversight proxy"
+    };
+    function titleFor(view) { return (VOCAB[view] && VOCAB[view].op) || view; }
 
     function operatorToken() {
       return tokenInput.value || sessionStorage.getItem("openmaoOperatorToken") || "";
@@ -1490,6 +1621,7 @@ function consoleHtml(): string {
       var h = {};
       h[TOKEN_HEADER] = operatorToken();
       h[ACTOR_HEADER] = CONSOLE_ACTOR;
+      h["x-openmao-workspace"] = selectedWorkspace;
       return h;
     }
     async function parse(response) {
@@ -1518,11 +1650,24 @@ function consoleHtml(): string {
       localStorage.setItem("openmaoConsoleTheme", theme);
       themeToggle.innerHTML = ICONS[theme === "dark" ? "sun" : "moon"];
     }
+    function workspaceName() {
+      for (var i = 0; i < workspaces.length; i++) {
+        if (workspaces[i].id === selectedWorkspace) return workspaces[i].name || selectedWorkspace;
+      }
+      return selectedWorkspace;
+    }
+    // Reveals the kernel term beside an operator label when "Developer names" is on.
+    function devName(view) {
+      var v = VOCAB[view];
+      return (devNames && v && v.dev) ? el("span", { class: "dev-name", text: v.dev }) : null;
+    }
 
     function setActive(view) {
       activeView = view;
-      viewTitle.textContent = TITLES[view] || view;
-      viewSub.textContent = WORKSPACE_ID;
+      viewTitle.replaceChildren(document.createTextNode(titleFor(view)));
+      var dn = devName(view);
+      if (dn) viewTitle.appendChild(dn);
+      viewSub.textContent = (SUBS[view] || "") + " · " + workspaceName();
       document.querySelectorAll(".navbtn").forEach(function (b) {
         b.setAttribute("aria-pressed", String(b.getAttribute("data-view") === view));
       });
@@ -1540,6 +1685,7 @@ function consoleHtml(): string {
           orgState = null;
           await refreshOrg();
           await load(activeView);
+          refreshBadges();
         } catch (e) {
           flash((e && e.error) ? e.error : "request failed");
         }
@@ -1547,153 +1693,374 @@ function consoleHtml(): string {
     }
     function setViewActions(view) {
       viewActions.replaceChildren();
-      if (view === "world") {
-        viewActions.appendChild(actionBtn("Run demo", { variant: "primary", onClick: postAction("/runs/demo", "demo started → suspended at approval gate") }));
-        viewActions.appendChild(actionBtn("Approve demo", { onClick: postAction("/runs/demo/approve", "approval.approved → run resumed → memory promoted") }));
+      if (view === "home") {
+        viewActions.appendChild(actionBtn("Run guided demo", { variant: "primary", onClick: postAction("/runs/demo", "demo started → suspended at approval gate") }));
+        viewActions.appendChild(actionBtn("Approve demo", { onClick: postAction("/runs/demo/approve", "approved → run resumed → memory promoted") }));
       } else if (view === "agents") {
         viewActions.appendChild(actionBtn("Run worker", { onClick: postAction("/workers/reference-demo", "reference worker run started") }));
         viewActions.appendChild(actionBtn("Approve worker", { onClick: postAction("/workers/reference-demo/approve", "reference worker approval resolved") }));
       } else if (view === "chiefOfStaff") {
-        viewActions.appendChild(actionBtn("Tick CoS", { variant: "primary", onClick: postAction("/cos/tick", "chief of staff ticked") }));
+        viewActions.appendChild(actionBtn("Run a sweep", { variant: "primary", onClick: postAction("/cos/tick", "Chief of Staff ran a sweep") }));
       }
     }
 
     async function refreshOrg() {
-      if (!operatorToken()) { autonomySlot.replaceChildren(); orgState = null; return; }
+      if (!operatorToken()) { autonomySlot.replaceChildren(); orgState = null; rolesById = {}; agentsById = {}; return; }
       try {
         var data = await request("/org");
         orgState = (data.organizations && data.organizations[0]) || null;
+        rolesById = {};
+        (data.roles || []).forEach(function (r) { rolesById[r.id] = r; });
+        agentsById = {};
+        (data.agents || []).forEach(function (a) { agentsById[a.id] = a; });
         autonomySlot.replaceChildren(orgState ? autonomyPill(orgState.autonomy_level) : "");
       } catch (e) {
         autonomySlot.replaceChildren();
       }
     }
 
+    async function refreshWorkspaces() {
+      if (!operatorToken()) { return; }
+      try {
+        workspaces = await request("/workspaces");
+        if (!workspaces.some(function (w) { return w.id === selectedWorkspace; }) && workspaces.length) {
+          selectedWorkspace = workspaces[0].id;
+        }
+        wsSwitcher.replaceChildren();
+        workspaces.forEach(function (w) {
+          wsSwitcher.appendChild(el("option", { value: w.id, text: w.name || w.id }));
+        });
+        wsSwitcher.value = selectedWorkspace;
+      } catch (e) { /* token gate handled per-view */ }
+    }
+
+    // Resolve an owner/agent reference to its human identity (falls back to a stripped id).
+    function agentName(ref) {
+      if (ref == null) return "—";
+      var a = agentsById[ref];
+      return a && a.identity ? a.identity : strip(ref, "agent_");
+    }
+    function roleNameFor(agent) {
+      var r = agent && rolesById[agent.role_id];
+      return r && r.name ? r.name : strip(agent ? agent.role_id : "", "role_");
+    }
+    function grantsFor(agent) {
+      var r = agent && rolesById[agent.role_id];
+      return (r && r.capability_grants) || [];
+    }
+
     function note(text) { return el("div", { class: "note", text: text }); }
     function loadingNote() { return note("Loading…"); }
     function errorView(e) {
       if (e && e.error === "operator_token_required") {
-        return panel(null, note("Enter your operator token above to load this view."), { flush: false });
+        return emptyCta("inbox", "Connect to your organization", "Enter your operator token in the header to load the console. Everything you do here is governed, audited, and reversible.", null);
       }
       return panel("Error", el("pre", { class: "", style: "margin:0;font-family:var(--font-mono);font-size:12px;color:var(--state-danger-fg);white-space:pre-wrap", text: JSON.stringify(e, null, 2) }));
     }
+    function capLabel(text) { return el("div", { class: "cap-label", text: text }); }
+    // Empty states propose the next action instead of reporting emptiness.
+    function emptyCta(iconName, title, body, action) {
+      var kids = [
+        icon(iconName, "ec-ico"),
+        el("div", { class: "ec-title", text: title }),
+        el("div", { class: "ec-body", text: body })
+      ];
+      if (action) kids.push(action);
+      return el("div", { class: "empty-cta" }, kids);
+    }
+    function goBtn(label, view, variant) {
+      return actionBtn(label, { variant: variant || null, onClick: function () { load(view); } });
+    }
+    function relTime(ts) {
+      if (!ts) return "";
+      var then = Date.parse(ts);
+      if (isNaN(then)) return ts;
+      var s = Math.max(0, Math.round((Date.now() - then) / 1000));
+      if (s < 60) return s + "s ago";
+      if (s < 3600) return Math.round(s / 60) + " min ago";
+      if (s < 86400) return Math.round(s / 3600) + " hr ago";
+      return Math.round(s / 86400) + " d ago";
+    }
+    // Map an approval's on_reject path to plain-language reversibility (Pattern 2 evidence pack).
+    function reversibility(a) {
+      var r = a.on_reject;
+      if (r === "fail_run") return "Reject fails this run — nothing is committed, and you can re-run it.";
+      if (r === "skip_action") return "Reject skips just this action — the run continues on a safer path.";
+      if (r === "no_op") return "Reject is a no-op — no side effect either way.";
+      return "Reject is recorded in the audit trail.";
+    }
+    var SEV_FAMILY = { urgent: "danger", attention: "pending", info: "info" };
+    function sevBadge(s) {
+      var fam = SEV_FAMILY[s] || "neutral";
+      return el("span", { class: "badge badge-" + fam }, [el("span", { class: "bdot" }), s == null ? "—" : String(s)]);
+    }
+
+    // One evidence-pack approval card: resolvable in seconds (Pattern 2 [4]).
+    function approvalPack(a) {
+      var rationale = (a.payload && a.payload.reason) || a.action || "Approval requested";
+      var card = el("div", { class: "ap-pack urgent" });
+      card.appendChild(el("div", { class: "ap-hd" }, [
+        el("div", { class: "ap-icon", html: ICONS["shield-check"] }),
+        el("div", { style: "min-width:0" }, [
+          el("div", { class: "ap-title", text: a.action || "Approval" }),
+          el("div", { class: "ap-meta", text: "requested by " + agentName(a.requested_by) })
+        ]),
+        el("span", { class: "ap-age", text: relTime(a.created_at) })
+      ]));
+      function evRow(label, value) {
+        return el("div", { class: "ap-ev-row" }, [
+          el("span", { class: "ap-ev-label", text: label }),
+          (value != null && typeof value === "object")
+            ? el("span", { class: "ap-ev-val" }, value)
+            : el("span", { class: "ap-ev-val", text: value })
+        ]);
+      }
+      var evRows = [
+        evRow("What", a.action || "—"),
+        evRow("Why", rationale),
+        evRow("Requested by", agentName(a.requested_by)),
+        evRow("Reversible?", reversibility(a))
+      ];
+      if (a.payload && a.payload.target_type) evRows.push(evRow("Target", el("span", { class: "tag", text: a.payload.target_type })));
+      if (a.run_id) evRows.push(evRow("On a run", el("span", { class: "mono", style: "font-size:12px;color:var(--fg-2)", text: a.run_id })));
+      card.appendChild(el("div", { class: "ap-ev" }, evRows));
+      card.appendChild(el("div", { class: "ap-acts" }, [
+        actionBtn("Approve", { variant: "primary", onClick: postAction("/approvals/" + a.id + "/approve", "Approved — agent resumes") }),
+        actionBtn("Reject with reason", { variant: "danger", onClick: postAction("/approvals/" + a.id + "/reject", "Rejected — reversible, agent notified") }),
+        el("span", { class: "spacer" }),
+        el("span", { class: "meta-line", text: devNames ? a.id : ("on_approve: " + a.on_approve) })
+      ]));
+      return card;
+    }
+
+    // Agent role card: identity, role, model, scope, granted tool actions, live work + track record.
+    function agentCard(a, byOwner) {
+      var grants = grantsFor(a);
+      var mine = byOwner[a.id] || [];
+      var active = mine.filter(function (w) { return w.status === "in_progress" || w.status === "review"; });
+      var done = mine.filter(function (w) { return w.status === "done"; }).length;
+      var nowText = active.length ? active[0].title : "Idle";
+      var card = el("div", { class: "agent-card" });
+      card.appendChild(el("div", { class: "ac-hd" }, [
+        el("div", { class: "ac-avatar", html: ICONS.bot }),
+        el("div", { style: "min-width:0" }, [
+          el("div", { class: "ac-name", text: a.identity }),
+          el("div", { class: "ac-role", text: roleNameFor(a) })
+        ]),
+        el("div", { style: "margin-left:auto" }, statusBadge(a.status))
+      ]));
+      card.appendChild(el("div", { class: "ac-tools" },
+        grants.length ? grants.map(function (g) { return el("span", { class: "tag", text: g }); }) : [el("span", { class: "meta-line", text: "no granted tool actions" })]
+      ));
+      card.appendChild(el("div", { class: "ac-now" }, [el("strong", { style: "color:var(--fg-1)", text: "Now: " }), nowText]));
+      card.appendChild(el("div", { class: "ac-stats" }, [
+        el("div", { class: "ac-stat" }, [el("div", { class: "asv", text: String(done) }), el("div", { class: "ask", text: "tasks done" })]),
+        el("div", { class: "ac-stat" }, [el("div", { class: "asv", text: String(active.length) }), el("div", { class: "ask", text: "active now" })]),
+        el("div", { class: "ac-stat", style: "flex:1;min-width:0" }, [
+          el("div", { class: "asv", style: "font-size:13px;font-weight:500;color:var(--fg-2);overflow-wrap:anywhere", text: a.model_binding }),
+          el("div", { class: "ask", text: "model" })
+        ])
+      ]));
+      return card;
+    }
+
+    // One triage item: icon + plain-language summary + one-click resolution.
+    function triageItem(opts) {
+      var item = el("div", { class: "triage-item" + (opts.tone ? " " + opts.tone : ""), tabindex: "0", role: "button" });
+      var go = function () { load(opts.view); };
+      item.addEventListener("click", go);
+      item.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+      var cta = actionBtn(opts.cta || "Open", { variant: opts.ctaVariant || null, onClick: function (e) { e.stopPropagation(); go(); } });
+      item.appendChild(el("div", { class: "triage-icon " + opts.iconClass, html: ICONS[opts.icon] }));
+      item.appendChild(el("div", { class: "triage-main" }, [
+        el("div", { class: "tt", text: opts.title }),
+        el("div", { class: "ts", text: opts.sub })
+      ]));
+      item.appendChild(el("div", { class: "triage-cta" }, cta));
+      return item;
+    }
 
     var VIEWS = {
-      world: async function () {
+      // Triage Home — "what needs you" aggregated from approvals + world + CoS + ratification + improvements.
+      home: async function () {
         if (!orgState) await refreshOrg();
-        var w = await request("/world");
-        var status = w.latest_run_status;
-        var pending = (w.pending_approvals || []).length;
-        var banner;
-        if (status === "completed") {
-          banner = el("div", { class: "gate-banner ok" }, [icon("check-circle"), "Run completed. Memory promoted to collective. Track record updated."]);
-        } else if (status === "failed") {
-          banner = el("div", { class: "gate-banner bad" }, [icon("pause-circle"), "Run failed at the gate — reversible. Re-run the demo to retry."]);
-        } else if (pending > 0) {
-          banner = el("div", { class: "gate-banner" }, [icon("pause-circle"), "Run suspended at a governance gate. " + pending + " approval" + (pending === 1 ? "" : "s") + " pending in Approvals."]);
-        } else {
-          banner = el("div", { class: "gate-banner ok" }, [icon("check-circle"), "No governance gate is currently blocking. The world model is up to date."]);
-        }
-        var grid = el("div", { class: "statgrid" }, [
-          el("div", { class: "stat" }, [el("div", { class: "sv", text: status == null ? "—" : status }), el("div", { class: "sk", text: "latest_run_status" })]),
-          el("div", { class: "stat" }, [el("div", { class: "sv", text: String(pending) }), el("div", { class: "sk", text: "pending_approvals" })]),
-          el("div", { class: "stat" }, [el("div", { class: "sv", text: String((w.active_work || []).length) }), el("div", { class: "sk", text: "active_work" })]),
-          el("div", { class: "stat" }, [el("div", { class: "sv", text: String((w.open_org_change_proposals || []).length) }), el("div", { class: "sk", text: "open_proposals" })])
+        var results = await Promise.all([
+          request("/approvals").catch(function () { return []; }),
+          request("/world").catch(function () { return {}; }),
+          request("/cos/notifications?unread=1").catch(function () { return []; }),
+          request("/memory/promotions").catch(function () { return []; }),
+          request("/learning/proposals").catch(function () { return []; })
         ]);
-        var snapshot = panel("World model snapshot", kvlist([
-          { key: "autonomy_level", value: orgState ? autonomyPill(orgState.autonomy_level) : "—" },
-          { key: "blockers", value: (w.blockers && w.blockers.length) ? w.blockers.map(function (b) { return el("div", { text: b }); }) : "—" },
-          { key: "pending_reviews", mono: true, value: joinList(w.pending_reviews) },
-          { key: "learning_signals", mono: true, value: joinList(w.learning_signals, "  ·  ") },
-          { key: "capability_gaps", mono: true, value: joinList(w.capability_gaps) }
-        ]), { action: tag(w.cache_only ? "cache_only" : "live") });
-        return [banner, grid, snapshot, rawDetails(w)];
+        var approvals = results[0], w = results[1] || {}, notes = results[2], promos = results[3], proposals = results[4];
+        var ratifiable = promos.filter(function (p) { return p.status === "pending"; });
+        var proposed = proposals.filter(function (p) { return p.status === "proposed"; });
+        var blockers = w.blockers || [];
+        var pendingReviews = w.pending_reviews || [];
+
+        var items = [];
+        approvals.forEach(function (a) {
+          items.push(triageItem({
+            view: "approvals", icon: "shield-check", iconClass: "tap", tone: "urgent",
+            title: "Approval needed: " + (a.action || "action") + " — " + agentName(a.requested_by) + " is waiting",
+            sub: ((a.payload && a.payload.reason) || "Decision required before the run can proceed") + " · " + relTime(a.created_at),
+            cta: "Review", ctaVariant: "primary"
+          }));
+        });
+        blockers.forEach(function (b) {
+          items.push(triageItem({
+            view: "work", icon: "alert-triangle", iconClass: "tbl", tone: "critical",
+            title: "Blocked: " + b, sub: "A task is stuck and needs you to clear the path", cta: "View"
+          }));
+        });
+        if (pendingReviews.length) {
+          items.push(triageItem({
+            view: "work", icon: "list-checks", iconClass: "tco",
+            title: pendingReviews.length + " task" + (pendingReviews.length === 1 ? "" : "s") + " awaiting your review",
+            sub: "Work is finished and waiting on your sign-off", cta: "Review"
+          }));
+        }
+        if (ratifiable.length) {
+          items.push(triageItem({
+            view: "promotions", icon: "brain", iconClass: "tkn",
+            title: ratifiable.length + " knowledge item" + (ratifiable.length === 1 ? "" : "s") + " ready to ratify",
+            sub: "Agents learned something on recent runs — confirm it to add it to org memory", cta: "Ratify"
+          }));
+        }
+        if (proposed.length) {
+          items.push(triageItem({
+            view: "learning", icon: "git-branch", iconClass: "tco",
+            title: proposed.length + " suggested improvement" + (proposed.length === 1 ? "" : "s") + " to your org",
+            sub: "The org is proposing changes to its own roles, policies, or workflows", cta: "Review"
+          }));
+        }
+        notes.forEach(function (n) {
+          items.push(triageItem({
+            view: "chiefOfStaff", icon: "bell", iconClass: "tco",
+            title: "Chief of Staff: " + n.summary, sub: (n.severity || "info") + " · " + relTime(n.created_at), cta: "Open"
+          }));
+        });
+
+        var left = el("div");
+        left.appendChild(capLabel("Needs your attention  (" + items.length + ")"));
+        if (items.length) {
+          left.appendChild(el("div", { class: "triage-list" }, items));
+        } else {
+          left.appendChild(el("div", { class: "all-clear" }, [icon("check-circle"), "You're all clear. No approvals, blockers, or knowledge waiting on you."]));
+          left.appendChild(el("div", { style: "margin-top:14px" }, emptyCta(
+            "sparkles", "Watch the flywheel end-to-end",
+            "Run the guided demo to delegate a task, approve it at the governance gate, and see what the org learns — the whole loop, no terminal.",
+            actionBtn("Run guided demo", { variant: "primary", onClick: postAction("/runs/demo", "demo started → suspended at approval gate") })
+          )));
+        }
+
+        var pulse = panel("Org pulse", el("div", null, [
+          el("div", { class: "pulse-item" }, [el("span", { class: "pulse-label", text: "Active work" }), el("span", { class: "pulse-value", text: String((w.active_work || []).length) })]),
+          el("div", { class: "pulse-item" }, [el("span", { class: "pulse-label", text: "Approvals waiting" }), el("span", { class: "pulse-value", style: approvals.length ? "color:var(--state-pending-fg)" : null, text: String(approvals.length) })]),
+          el("div", { class: "pulse-item" }, [el("span", { class: "pulse-label", text: "Latest run" }), el("span", { class: "pulse-value" }, statusBadge(w.latest_run_status))]),
+          el("div", { class: "pulse-item" }, [el("span", { class: "pulse-label", text: "Knowledge to ratify" }), el("span", { class: "pulse-value", text: String(ratifiable.length) })]),
+          el("div", { class: "pulse-item" }, [el("span", { class: "pulse-label", text: "Collective memory" }), el("span", { class: "pulse-value", text: String((w.collective_memory || []).length) })])
+        ]), { action: orgState ? autonomyPill(orgState.autonomy_level) : null });
+
+        return [el("div", { class: "home-grid" }, [left, pulse]), rawDetails({ world: w, approvals: approvals, notifications: notes })];
       },
       runs: async function () {
         var rows = await request("/runs");
+        if (!rows.length) {
+          return [emptyCta("play", "No runs yet", "A run is one execution attempt of a task. When a run pauses at a governance gate, you'll see it here and in Approvals — OpenMAO's suspend/resume is a clean, non-destructive pause.",
+            actionBtn("Run guided demo", { variant: "primary", onClick: postAction("/runs/demo", "demo started → run suspended at approval gate") })), rawDetails(rows)];
+        }
         return [panel(null, dataTable([
-          { label: "ID", mono: true, render: function (r) { return r.id; } },
+          { label: "Run", mono: true, render: function (r) { return r.id; } },
           { label: "Status", render: function (r) { return statusBadge(r.status); } },
-          { label: "Active node", mono: true, render: function (r) { return r.active_node || "—"; } },
-          { label: "Suspended approval", mono: true, render: function (r) { return r.suspended_approval_id || "—"; } }
+          { label: "At node", mono: true, render: function (r) { return r.active_node || "—"; } },
+          { label: "Paused on approval", mono: true, render: function (r) { return r.suspended_approval_id || "—"; } }
         ], rows), { flush: true }), rawDetails(rows)];
       },
       work: async function () {
         var rows = await request("/work");
+        if (!rows.length) {
+          return [emptyCta("list-checks", "No tasks yet", "Tasks are how you delegate work to your agents — each one carries an objective, a reviewer, success criteria, and a risk level, governed by approvals. Run the guided demo to create your first.",
+            actionBtn("Run guided demo", { variant: "primary", onClick: postAction("/runs/demo", "demo started → first task created") })), rawDetails(rows)];
+        }
         return [panel(null, dataTable([
-          { label: "ID", width: 100, mono: true, render: function (r) { return r.id; } },
           { label: "Title", render: function (r) { return r.title; } },
-          { label: "Owner", width: 130, mono: true, render: function (r) { return strip(r.owner, "agent_"); } },
+          { label: "Owner", width: 150, render: function (r) { return agentName(r.owner); } },
+          { label: "Reviewer", width: 120, mono: true, render: function (r) { return r.reviewer || "—"; } },
           { label: "Risk", width: 100, render: function (r) { return riskTag(r.risk_level); } },
           { label: "Status", width: 130, render: function (r) { return statusBadge(r.status); } }
         ], rows), { flush: true }), rawDetails(rows)];
       },
       agents: async function () {
+        if (!orgState) await refreshOrg();
         var rows = await request("/agents");
-        return [panel(null, dataTable([
-          { label: "ID", mono: true, render: function (r) { return r.id; } },
-          { label: "Identity", render: function (r) { return r.identity; } },
-          { label: "Role", mono: true, render: function (r) { return strip(r.role_id, "role_"); } },
-          { label: "Model", mono: true, render: function (r) { return r.model_binding; } },
-          { label: "Status", width: 110, render: function (r) { return statusBadge(r.status); } }
-        ], rows), { flush: true }), rawDetails(rows)];
+        var work = await request("/work").catch(function () { return []; });
+        var byOwner = {};
+        work.forEach(function (w) { (byOwner[w.owner] = byOwner[w.owner] || []).push(w); });
+        if (!rows.length) {
+          return [emptyCta("bot", "No agents registered", "Agents are your AI teammates — each bound to a role, a model, and a governed set of tool actions. Their audited track record is what earns them wider autonomy over time.", null), rawDetails(rows)];
+        }
+        var grid = el("div", { class: "agent-grid" }, rows.map(function (a) { return agentCard(a, byOwner); }));
+        return [grid, rawDetails({ agents: rows, roles: rolesById })];
       },
       approvals: async function () {
+        if (!orgState) await refreshOrg();
         var rows = await request("/approvals");
         if (!rows.length) {
-          return [panel(null, el("div", { class: "emptyrow" }, "No pending approvals."), { flush: false }), rawDetails(rows)];
+          return [emptyCta("shield-check", "Nothing waiting on you", "When an agent reaches a governance gate — a risky action, a spend, an external send — it pauses here with an evidence pack so you can decide in seconds. Approvals are how autonomy stays accountable.", null), rawDetails(rows)];
         }
-        var cards = rows.map(function (a) {
-          var head = el("div", { style: "display:flex;justify-content:space-between;align-items:flex-start;gap:12px" }, [
-            el("div", null, [
-              el("div", { style: "font-size:15px;font-weight:600", text: a.action || "Approval" }),
-              el("div", { class: "meta-line", style: "margin-top:3px", text: a.id })
-            ]),
-            statusBadge(a.status || "pending")
-          ]);
-          var kv = kvlist([
-            { key: "action", mono: true, value: a.action || "—" },
-            { key: "on_approve", mono: true, value: a.on_approve || "—" },
-            { key: "on_reject", mono: true, value: a.on_reject || "—" }
-          ]);
-          var buttons = el("div", { style: "display:flex;gap:8px" }, [
-            actionBtn("Approve", { variant: "primary", onClick: postAction("/approvals/" + a.id + "/approve", "approval.approved") }),
-            actionBtn("Reject", { variant: "danger", onClick: postAction("/approvals/" + a.id + "/reject", "approval.rejected (reversible)") })
-          ]);
-          var children = [head];
-          if (a.rationale || a.reason) children.push(el("div", { class: "rationale", text: a.rationale || a.reason }));
-          children.push(kv, buttons);
-          var card = el("div", { class: "panel" }, el("div", { class: "panel-body", style: "display:flex;flex-direction:column;gap:14px" }, children));
-          return card;
-        });
-        cards.push(rawDetails(rows));
-        return cards;
+        var nodes = [capLabel("Pending approvals  (" + rows.length + ")")];
+        rows.forEach(function (a) { nodes.push(approvalPack(a)); });
+        nodes.push(rawDetails(rows));
+        return nodes;
       },
       promotions: async function () {
         var rows = await request("/memory/promotions");
-        return [panel(null, dataTable([
-          { label: "ID", mono: true, render: function (r) { return r.id; } },
-          { label: "Proposed by", mono: true, render: function (r) { return strip(r.proposed_by, "agent_"); } },
-          { label: "Source entry", mono: true, render: function (r) { return r.source_memory_entry; } },
-          { label: "Corrob.", width: 80, mono: true, render: function (r) { return r.corroboration_count; } },
-          { label: "Status", width: 120, render: function (r) { return statusBadge(r.status); } }
-        ], rows), { flush: true }), rawDetails(rows)];
+        var pending = rows.filter(function (r) { return r.status === "pending"; });
+        var resolved = rows.filter(function (r) { return r.status !== "pending"; });
+        if (!rows.length) {
+          return [emptyCta("brain", "No knowledge awaiting ratification", "When an agent proposes that something it learned should become shared org knowledge, it lands here with its evidence and corroboration count. Ratifying is how the institutional memory grows — deliberately, not automatically.", null), rawDetails(rows)];
+        }
+        function ratifyCard(p, isPending) {
+          var conf = Math.round((p.confidence != null ? p.confidence : 0.5) * 100);
+          var item = el("div", { class: "know-item" + (isPending ? " rq" : "") });
+          item.appendChild(el("div", { class: "ki-hd" }, [
+            el("div", { class: "ki-conf", text: conf + "%" }),
+            el("div", { style: "min-width:0" }, [
+              el("div", { class: "ki-title", text: p.proposed_content }),
+              el("div", { class: "ki-prov", text: "proposed by " + agentName(p.proposed_by) + " · " + p.corroboration_count + (p.corroboration_count === 1 ? " independent confirmation" : " independent confirmations") + " · " + relTime(p.created_at) })
+            ]),
+            el("div", { style: "margin-left:auto;flex:none" }, statusBadge(p.status))
+          ]));
+          if (p.rationale) item.appendChild(el("div", { class: "rationale", style: "margin-top:9px", text: p.rationale }));
+          return item;
+        }
+        var nodes = [];
+        if (pending.length) {
+          nodes.push(capLabel("Ready to ratify  (" + pending.length + ")"));
+          nodes.push(el("div", { class: "know-list" }, pending.map(function (p) { return ratifyCard(p, true); })));
+        }
+        if (resolved.length) {
+          nodes.push(el("div", { style: "margin-top:18px" }, capLabel("Resolved  (" + resolved.length + ")")));
+          nodes.push(el("div", { class: "know-list" }, resolved.map(function (p) { return ratifyCard(p, false); })));
+        }
+        nodes.push(rawDetails(rows));
+        return nodes;
       },
       learning: async function () {
         var rows = await request("/learning/proposals");
         if (!rows.length) {
-          return [panel(null, el("div", { class: "emptyrow" }, "No org-change proposals."), { flush: false }), rawDetails(rows)];
+          return [emptyCta("git-branch", "The org hasn't proposed any changes yet", "This is the self-correction surface: as the org runs, it spots patterns and proposes changes to its own roles, policies, and workflows — each with evidence, for your ratification. It stays empty until there's a signal worth acting on.", null), rawDetails(rows)];
         }
         var cards = rows.map(function (p) {
-          var topLeft = el("div", { style: "display:flex;gap:8px;align-items:center" }, [tag(p.change_type), el("span", { class: "meta-line", text: p.source_signal })]);
+          var topLeft = el("div", { style: "display:flex;gap:8px;align-items:center;flex-wrap:wrap" }, [tag(p.change_type), el("span", { class: "meta-line", text: "signal: " + p.source_signal })]);
           var top = el("div", { style: "display:flex;justify-content:space-between;gap:12px;align-items:center" }, [topLeft, statusBadge(p.status)]);
-          var meta = el("span", { class: "meta-line", text: "confidence " + p.confidence + " · impact " + p.impact });
-          var actions = el("div", { style: "margin-left:auto;display:flex;gap:8px" });
+          var meta = el("span", { class: "meta-line", text: "confidence " + Math.round((p.confidence != null ? p.confidence : 0.5) * 100) + "% · impact " + p.impact });
+          var actions = el("div", { style: "margin-left:auto;display:flex;gap:8px;flex-wrap:wrap" });
           if (p.status === "proposed" && p.review_approval_id) {
-            actions.appendChild(actionBtn("Approve", { variant: "primary", onClick: postAction("/approvals/" + p.review_approval_id + "/approve", "proposal approved") }));
-            actions.appendChild(actionBtn("Reject", { variant: "danger", onClick: postAction("/approvals/" + p.review_approval_id + "/reject", "proposal rejected") }));
+            actions.appendChild(actionBtn("Ratify", { variant: "primary", onClick: postAction("/approvals/" + p.review_approval_id + "/approve", "improvement ratified") }));
+            actions.appendChild(actionBtn("Reject", { variant: "danger", onClick: postAction("/approvals/" + p.review_approval_id + "/reject", "improvement rejected") }));
           } else if (p.status === "approved") {
-            actions.appendChild(actionBtn("Apply", { onClick: postAction("/learning/proposals/" + p.id + "/apply", "proposal applied to org") }));
+            actions.appendChild(actionBtn("Apply to org", { onClick: postAction("/learning/proposals/" + p.id + "/apply", "improvement applied — reversible") }));
           } else if (p.status === "applied") {
             actions.appendChild(el("span", { class: "meta-line", style: "color:var(--state-success-fg)", text: "applied to org" }));
           } else if (p.status === "rejected") {
@@ -1708,58 +2075,80 @@ function consoleHtml(): string {
       memory: async function () {
         var collective = await request("/memory/collective");
         var individual = await request("/memory/individual/" + COORDINATOR_AGENT_ID);
-        function memList(entries) {
-          if (!entries.length) return el("div", { class: "emptyrow" }, "No entries.");
+        function memList(entries, emptyText) {
+          if (!entries.length) return el("div", { class: "emptyrow" }, emptyText);
           return kvlist(entries.map(function (m) {
-            return { key: m.kind, value: [document.createTextNode(m.content + " "), statusBadge(m.status)] };
+            var conf = m.confidence != null ? " · " + Math.round(m.confidence * 100) + "% confidence" : "";
+            return {
+              key: m.kind,
+              value: [
+                el("div", null, [document.createTextNode(m.content + " "), statusBadge(m.status)]),
+                el("div", { class: "meta-line", style: "margin-top:3px", text: "provenance: " + ((m.provenance && (m.provenance.source || m.provenance.kind)) || "—") + conf })
+              ]
+            };
           }));
         }
+        if (!collective.length && !individual.length) {
+          return [emptyCta("brain", "No institutional knowledge yet", "This is the compounding asset: knowledge an agent learns, gets corroborated, and you ratify, becomes shared org memory with full provenance. It grows as work runs through the flywheel.",
+            actionBtn("Run guided demo", { variant: "primary", onClick: postAction("/runs/demo", "demo started → memory will be promoted on approve") })), rawDetails({ collective: collective, individual: individual })];
+        }
         return [
-          panel("Collective memory", memList(collective), { action: tag("promoted") }),
-          panel("Individual memory · " + strip(COORDINATOR_AGENT_ID, "agent_"), memList(individual)),
+          panel("What the org has learned", memList(collective, "Nothing ratified into shared memory yet."), { action: devNames ? tag("scope: collective") : tag("shared") }),
+          panel("One agent's private notes · " + agentName(COORDINATOR_AGENT_ID), memList(individual, "No private notes for this agent.")),
           rawDetails({ collective: collective, individual: individual })
         ];
       },
       capabilities: async function () {
         var rows = await request("/capabilities");
-        return [panel(null, dataTable([
-          { label: "Name", mono: true, render: function (r) { return r.name; } },
-          { label: "Default permission", render: function (r) { return statusBadge(r.default_permission); } },
-          { label: "Side-eff.", width: 90, mono: true, render: function (r) { return r.side_effecting ? "yes" : "no"; } },
-          { label: "Risk", width: 90, render: function (r) { return riskTag(r.risk_level); } }
-        ], rows), { flush: true }), rawDetails(rows)];
+        function permLabel(p) {
+          var map = { enabled: "Allowed", approval_required: "Needs approval", disabled: "Blocked" };
+          var cls = p === "enabled" ? "p-allow" : p === "disabled" ? "p-deny" : "p-ask";
+          return el("span", { class: cls, text: map[p] || p });
+        }
+        if (!rows.length) {
+          return [emptyCta("layers", "No tool actions registered", "Tool actions are the governed things agents can do in the world — each with a default permission (allowed / needs approval / blocked) and a risk level. This is the fine-grained layer beneath the autonomy dial.", null), rawDetails(rows)];
+        }
+        var grid = el("div", { class: "cap-grid" });
+        grid.appendChild(el("div", { class: "cap-row hdr" }, [
+          el("span", { class: "cap-name", text: "Tool action" }),
+          el("span", { style: "width:90px;flex:none", text: "Risk" }),
+          el("span", { style: "width:140px;flex:none", text: "Default permission" })
+        ]));
+        rows.forEach(function (r) {
+          grid.appendChild(el("div", { class: "cap-row" }, [
+            el("div", { class: "cap-name" }, [el("div", { text: r.name }), el("div", { class: "cap-sub", text: r.description || (r.side_effecting ? "has side effects" : "read-only") })]),
+            el("span", { style: "width:90px;flex:none" }, riskTag(r.risk_level)),
+            el("span", { style: "width:140px;flex:none" }, permLabel(r.default_permission))
+          ]));
+        });
+        return [grid, rawDetails(rows)];
       },
       capabilityCalls: async function () {
         var calls = await request("/capability-calls");
         var results = await request("/capability-results");
         var byCall = {};
         results.forEach(function (r) { byCall[r.call_id] = r.status; });
+        if (!calls.length) {
+          return [emptyCta("arrow-right-left", "No tool actions requested yet", "Every time an agent invokes a governed tool action, the request and its result are recorded here — the audit trail of what your agents actually did in the world.", null), rawDetails({ calls: calls, results: results })];
+        }
         return [panel(null, dataTable([
-          { label: "ID", mono: true, render: function (r) { return r.id; } },
-          { label: "Capability", mono: true, render: function (r) { return r.capability_name; } },
-          { label: "Requested by", mono: true, render: function (r) { return strip(r.requested_by, "agent_"); } },
+          { label: "Action", mono: true, render: function (r) { return r.capability_name; } },
+          { label: "Requested by", width: 150, render: function (r) { return agentName(r.requested_by); } },
           { label: "Risk", width: 90, render: function (r) { return riskTag(r.risk_level); } },
           { label: "Result", width: 110, render: function (r) { return byCall[r.id] ? statusBadge(byCall[r.id]) : tag("awaiting"); } }
         ], calls), { flush: true }), rawDetails({ calls: calls, results: results })];
       },
-      capabilityResults: async function () {
-        var rows = await request("/capability-results");
-        return [panel(null, dataTable([
-          { label: "ID", mono: true, render: function (r) { return r.id; } },
-          { label: "Call", mono: true, render: function (r) { return r.call_id; } },
-          { label: "Status", width: 120, render: function (r) { return statusBadge(r.status); } },
-          { label: "Run", mono: true, render: function (r) { return r.run_id; } }
-        ], rows), { flush: true }), rawDetails(rows)];
-      },
       events: async function () {
         var rows = await request("/events");
         function family(kind) {
-          if (kind.indexOf("approved") >= 0 || kind.indexOf("completed") >= 0 || kind.indexOf("promoted") >= 0) return "go";
-          if (kind.indexOf("requested") >= 0 || kind.indexOf("suspended") >= 0 || kind.indexOf("blocked") >= 0 || kind.indexOf("failed") >= 0) return "warn";
+          if (kind.indexOf("approved") >= 0 || kind.indexOf("completed") >= 0 || kind.indexOf("promoted") >= 0 || kind.indexOf("ratified") >= 0) return "go";
+          if (kind.indexOf("requested") >= 0 || kind.indexOf("suspended") >= 0 || kind.indexOf("blocked") >= 0 || kind.indexOf("failed") >= 0 || kind.indexOf("rejected") >= 0) return "warn";
           return "";
         }
+        if (!rows.length) {
+          return [emptyCta("activity", "The audit trail is empty", "Every action the org takes is appended here, in order — a human-readable, reversible history. Reject and revert are your undo. It fills as work runs.", null), rawDetails(rows)];
+        }
         var tl = el("div", { class: "tl" });
-        if (!rows.length) tl.appendChild(el("div", { class: "emptyrow" }, "No events."));
         rows.forEach(function (e) {
           tl.appendChild(el("div", { class: "ev " + family(e.kind) }, [
             el("span", { class: "seq", text: String(e.seq).padStart(3, "0") }),
@@ -1767,7 +2156,7 @@ function consoleHtml(): string {
             el("span", { class: "actor", text: e.actor })
           ]));
         });
-        return [panel("Append-only event log", tl, { action: tag(rows.length + " events") }), rawDetails(rows)];
+        return [panel("Audit trail", tl, { action: tag(rows.length + (rows.length === 1 ? " event" : " events")) }), rawDetails(rows)];
       },
       traces: async function () {
         var runs = await request("/runs");
@@ -1775,65 +2164,69 @@ function consoleHtml(): string {
         for (var i = 0; i < runs.length; i++) { if (runs[i].id === RUN_ID) { run = runs[i]; break; } }
         if (!run) run = runs[0];
         var rows = run ? await request("/runs/" + run.id + "/traces") : [];
+        if (!rows.length) {
+          return [emptyCta("git-commit-horizontal", "No traces yet", "Traces are the per-node execution detail of a run — the deepest drill-down for debugging what an agent did, step by step. They appear once a run executes.", null), rawDetails(rows)];
+        }
         return [panel(null, dataTable([
           { label: "Node", mono: true, render: function (r) { return r.node; } },
-          { label: "Timestamp", width: 160, mono: true, render: function (r) { return r.timestamp; } },
+          { label: "Timestamp", width: 180, mono: true, render: function (r) { return r.timestamp; } },
           { label: "Run", mono: true, render: function (r) { return r.run_id; } }
         ], rows), { flush: true }), rawDetails(rows)];
       },
       search: async function () {
-        var input = el("input", { class: "input", type: "search", placeholder: "Search collective + shared memory…", style: "width: 360px; max-width: 100%" });
+        var input = el("input", { class: "input", type: "search", placeholder: "Search what the org knows…", style: "width: 360px; max-width: 100%" });
         var resultsBox = el("div");
+        var prompt = "Search across shared org knowledge and agents' private notes.";
         async function run() {
           var q = input.value.trim();
-          if (!q) { resultsBox.replaceChildren(note("Enter a query to search collective and shared memory.")); return; }
+          if (!q) { resultsBox.replaceChildren(note(prompt)); return; }
           resultsBox.replaceChildren(loadingNote());
           try {
             var results = await request("/memory/search?q=" + encodeURIComponent(q));
+            if (!results.length) { resultsBox.replaceChildren(note("No knowledge matched “" + q + "”.")); return; }
             var rows = results.map(function (r) {
               return {
-                id: r.entry.id, scope: r.entry.scope, kind: r.entry.kind, confidence: r.entry.confidence,
-                corroboration_count: r.evidence.corroboration_count, source_promotion: r.evidence.source_promotion, content: r.entry.content
+                scope: r.entry.scope, kind: r.entry.kind, confidence: r.entry.confidence,
+                corroboration_count: r.evidence.corroboration_count, content: r.entry.content
               };
             });
             resultsBox.replaceChildren(
               panel(null, dataTable([
-                { label: "ID", mono: true, render: function (r) { return r.id; } },
-                { label: "Scope", render: function (r) { return tag(r.scope); } },
-                { label: "Kind", mono: true, render: function (r) { return r.kind; } },
-                { label: "Conf.", width: 70, mono: true, render: function (r) { return r.confidence; } },
-                { label: "Corrob.", width: 80, mono: true, render: function (r) { return r.corroboration_count; } },
-                { label: "Source promo", mono: true, render: function (r) { return r.source_promotion || "—"; } },
-                { label: "Content", render: function (r) { return r.content; } }
+                { label: "Knowledge", render: function (r) { return r.content; } },
+                { label: "Where", width: 110, render: function (r) { return tag(r.scope === "collective" ? "shared" : "private"); } },
+                { label: "Kind", width: 110, mono: true, render: function (r) { return r.kind; } },
+                { label: "Confidence", width: 100, mono: true, render: function (r) { return Math.round((r.confidence || 0) * 100) + "%"; } },
+                { label: "Confirmations", width: 120, mono: true, render: function (r) { return r.corroboration_count; } }
               ], rows), { flush: true }),
               rawDetails(results)
             );
           } catch (e) { resultsBox.replaceChildren(errorView(e)); }
         }
         input.addEventListener("keydown", function (e) { if (e.key === "Enter") run(); });
-        resultsBox.appendChild(note("Enter a query to search collective and shared memory."));
+        resultsBox.appendChild(note(prompt));
         return [el("div", { style: "display:flex; gap:8px; margin-bottom:16px" }, [input, actionBtn("Search", { variant: "primary", onClick: run })]), resultsBox];
       },
       chiefOfStaff: async function () {
         var rows = await request("/cos/notifications");
-        var sevMap = { critical: "danger", error: "danger", high: "danger", warning: "pending", warn: "pending", medium: "pending", info: "info", low: "neutral" };
-        function sevBadge(s) {
-          var fam = sevMap[s] || "neutral";
-          return el("span", { class: "badge badge-" + fam }, [el("span", { class: "bdot" }), s == null ? "—" : String(s)]);
+        if (!rows.length) {
+          return [emptyCta("bell", "Nothing from your Chief of Staff", "The Chief of Staff is your minimum-workload oversight proxy — it sweeps the org on a schedule and surfaces only what needs you. A quiet log means nothing is escalating. Run a sweep to check now.",
+            actionBtn("Run a sweep", { variant: "primary", onClick: postAction("/cos/tick", "Chief of Staff ran a sweep") })), rawDetails(rows)];
         }
         return [panel(null, dataTable([
           { label: "Severity", render: function (r) { return sevBadge(r.severity); } },
-          { label: "Kind", mono: true, render: function (r) { return r.kind; } },
           { label: "Summary", render: function (r) { return r.summary; } },
           { label: "Status", width: 110, render: function (r) { return statusBadge(r.status); } },
-          { label: "", width: 112, render: function (r) { return r.status === "unread" ? actionBtn("Mark read", { onClick: postAction("/cos/notifications/" + r.id + "/read", "notification marked read") }) : ""; } }
+          { label: "", width: 112, render: function (r) { return r.status === "unread" ? actionBtn("Mark read", { onClick: postAction("/cos/notifications/" + r.id + "/read", "marked read") }) : ""; } }
         ], rows), { flush: true }), rawDetails(rows)];
       },
       cadences: async function () {
         var rows = await request("/cadences");
+        if (!rows.length) {
+          return [emptyCta("repeat", "No schedules set", "Schedules are the recurring sweeps your Chief of Staff runs — learning scans, stale-approval sweeps, status digests. They keep oversight lightweight and automatic.", null), rawDetails(rows)];
+        }
         return [panel(null, dataTable([
-          { label: "Kind", mono: true, render: function (r) { return r.kind; } },
-          { label: "Interval", width: 120, mono: true, render: function (r) { return r.interval_seconds != null ? r.interval_seconds + "s" : "—"; } },
+          { label: "Sweep", mono: true, render: function (r) { return r.kind; } },
+          { label: "Every", width: 120, mono: true, render: function (r) { return r.interval_seconds != null ? r.interval_seconds + "s" : "—"; } },
           { label: "Enabled", width: 110, render: function (r) { return statusBadge(r.enabled ? "enabled" : "disabled"); } },
           { label: "Next due", mono: true, render: function (r) { return r.next_due_at || "—"; } }
         ], rows), { flush: true }), rawDetails(rows)];
@@ -1852,6 +2245,50 @@ function consoleHtml(): string {
       }
     }
 
+    function setNavBadge(id, n) {
+      var b = document.getElementById(id);
+      if (!b) return;
+      if (n > 0) { b.textContent = String(n); b.hidden = false; } else { b.hidden = true; }
+    }
+    // Light "what needs you" counters on the nav, so triage is visible from anywhere.
+    async function refreshBadges() {
+      if (!operatorToken()) { setNavBadge("home-badge", 0); setNavBadge("appr-badge", 0); return; }
+      try {
+        var res = await Promise.all([
+          request("/approvals").catch(function () { return []; }),
+          request("/memory/promotions").catch(function () { return []; }),
+          request("/world").catch(function () { return {}; })
+        ]);
+        var approvals = res[0], promos = res[1], w = res[2] || {};
+        var ratifiable = promos.filter(function (p) { return p.status === "pending"; }).length;
+        var attention = approvals.length + ratifiable + (w.blockers || []).length + (w.pending_reviews || []).length;
+        setNavBadge("appr-badge", approvals.length);
+        setNavBadge("home-badge", attention);
+      } catch (e) { /* ignore */ }
+    }
+
+    function applyDevNames() {
+      devNamesBtn.setAttribute("aria-pressed", String(devNames));
+      // Surface the kernel term next to grouped nav labels too.
+      document.querySelectorAll(".navbtn").forEach(function (b) {
+        var view = b.getAttribute("data-view");
+        var label = b.querySelector(".navlabel");
+        if (!label) return;
+        var existing = b.querySelector(".dev-name");
+        if (existing) existing.remove();
+        var dn = devName(view);
+        if (dn) label.insertAdjacentElement("afterend", dn);
+      });
+    }
+
+    async function reloadAll() {
+      orgState = null;
+      await refreshWorkspaces();
+      await refreshOrg();
+      await load(activeView);
+      refreshBadges();
+    }
+
     document.querySelectorAll(".navbtn").forEach(function (b) {
       var s = b.querySelector(".ico");
       var name = b.getAttribute("data-icon");
@@ -1862,25 +2299,32 @@ function consoleHtml(): string {
       var next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
       applyTheme(next);
     });
-    document.getElementById("refresh").addEventListener("click", function () { refreshOrg(); load(activeView); });
+    devNamesBtn.addEventListener("click", function () {
+      devNames = !devNames;
+      localStorage.setItem("openmaoDevNames", devNames ? "1" : "0");
+      applyDevNames();
+      load(activeView);
+    });
+    wsSwitcher.addEventListener("change", function () {
+      selectedWorkspace = wsSwitcher.value;
+      sessionStorage.setItem("openmaoWorkspace", selectedWorkspace);
+      reloadAll();
+    });
+    document.getElementById("refresh").addEventListener("click", function () { reloadAll(); });
     document.getElementById("reset-token").addEventListener("click", function () {
       sessionStorage.removeItem("openmaoOperatorToken");
       tokenInput.value = "";
-      orgState = null;
-      refreshOrg();
-      load(activeView);
+      reloadAll();
     });
     tokenInput.value = sessionStorage.getItem("openmaoOperatorToken") || "";
     tokenInput.addEventListener("change", function () {
       sessionStorage.setItem("openmaoOperatorToken", tokenInput.value);
-      orgState = null;
-      refreshOrg();
-      load(activeView);
+      reloadAll();
     });
 
     applyTheme(localStorage.getItem("openmaoConsoleTheme") === "dark" ? "dark" : "light");
-    refreshOrg();
-    load(activeView);
+    applyDevNames();
+    reloadAll();
   </script>
 </body>
 </html>`;
