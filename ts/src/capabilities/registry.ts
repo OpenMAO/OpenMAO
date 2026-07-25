@@ -164,6 +164,14 @@ export class CapabilityRegistryService {
       if (existingApproval) {
         const decision = this.requireRecordedCapabilityDecision(recordedCall);
         if (existingApproval.status === "approved") {
+          // Narrowing gate (#120): re-check suspension at resume/replay time. An approval that
+          // went pending BEFORE a suspension (or one a human explicitly approves AFTER one) must
+          // still be blocked here — narrowing is reversible only by a ratified lift, never by an
+          // unrelated approval — so an approved call never executes a suspended grant.
+          const resumeBlock = this.suspendedResumeBlock(recordedCall, decision);
+          if (resumeBlock) {
+            return resumeBlock;
+          }
           return {
             mode: "execute",
             executable: {
@@ -206,6 +214,13 @@ export class CapabilityRegistryService {
               result: this.recordBlockedResult(recordedCall, recordedDecision.reason),
             },
           };
+        }
+        // Narrowing gate (#120): a non-block decision was recorded earlier but no result exists
+        // yet (a crash/retry window). Re-check suspension before executing so a grant suspended
+        // after the decision was recorded blocks on replay instead of running the provider.
+        const replayBlock = this.suspendedResumeBlock(recordedCall, recordedDecision);
+        if (replayBlock) {
+          return replayBlock;
         }
         return {
           mode: "execute",
@@ -304,6 +319,34 @@ export class CapabilityRegistryService {
     return await this.invoke(call);
   }
 
+  // Narrowing gate (#120), resume/replay arm: the call-time suspension check, applied to a
+  // PREVIOUSLY recorded non-block decision just before it would execute the provider (an
+  // approved approval, or a recorded allow with no result yet). It re-queries the active
+  // suspension through the same shared `governance.suspendedGrantBlockReason` the fresh gate
+  // uses, so resume/replay is gated identically to a first-time decision. When suspended it
+  // records a blocked result carrying the suspension reason (which emits the same
+  // `capability.failed` audit a fresh block does) and returns a pending invocation; the
+  // already-recorded decision is returned unchanged (re-recording a different decision under
+  // the same idempotency key would conflict — the block lives in the result, mirroring the
+  // rejected-approval path). Returns null when no active suspension applies.
+  private suspendedResumeBlock(
+    call: CapabilityCall,
+    decision: PolicyDecision,
+  ): InvokeTransactionResult | null {
+    const suspensionReason = this.governance.suspendedGrantBlockReason(call);
+    if (!suspensionReason) {
+      return null;
+    }
+    return {
+      mode: "pending",
+      invocation: {
+        call,
+        decision,
+        result: this.recordBlockedResult(call, suspensionReason),
+      },
+    };
+  }
+
   private decideCall(call: CapabilityCall, capability: Capability): PolicyDecision {
     const taskBoundaryBlockReason = this.taskBoundaryBlockReason(call);
     if (taskBoundaryBlockReason) {
@@ -382,6 +425,13 @@ export class CapabilityRegistryService {
         call,
         `Worker identity lacks capability grant: ${call.capability_name}.`,
       );
+    }
+    // Narrowing gate (#120): the worker path mirrors the role-grant path — right after
+    // the grant check, query the suspension store fresh through the shared governance
+    // read so a suspended worker grant blocks at call time too.
+    const suspensionReason = this.governance.suspendedGrantBlockReason(call);
+    if (suspensionReason) {
+      return this.policyBlock(call, suspensionReason);
     }
 
     const decision = this.governance.capabilityApprovalDecision(call, capability);

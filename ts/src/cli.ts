@@ -2,7 +2,7 @@
 import { ChiefOfStaffService } from "./chief_of_staff/index.js";
 import { utcNow } from "./contracts/index.js";
 import { DiagnosisService } from "./diagnosis/index.js";
-import { ApprovalService } from "./governance/index.js";
+import { ApprovalService, NarrowingService } from "./governance/index.js";
 import { ConsoleTransport, HeartbeatService } from "./heartbeat/index.js";
 import { IngestionService } from "./ingestion/index.js";
 import { LearningService } from "./learning/index.js";
@@ -16,6 +16,7 @@ import {
   BoundedWorkEnvelopeStore,
   type Database,
   EventStore,
+  GrantSuspensionStore,
   IngestionRecordStore,
   MemoryEntryStore,
   OrgChangeApplicationStore,
@@ -101,6 +102,10 @@ function positionalArgs(args: string[]): string[] {
     "--by",
     "--strength",
     "--note",
+    "--rejections",
+    "--violations",
+    "--window",
+    "--cooldown",
   ]);
   const positions: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
@@ -185,7 +190,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
 
     if (command === "help" || command === "--help" || command === "-h") {
       write(
-        "openmao demo | demo-approve | demo-deny | init | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert|withdraw | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | memory search|list [--include-untrusted --by <actor>]|attest <entry_id> --by <operator>|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | verify-chain | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | console",
+        "openmao demo | demo-approve | demo-deny | init | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert|withdraw | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | autonomy narrow ratify --by <actor> --rejections <n> --violations <m> --window <seconds> --cooldown <seconds> | autonomy narrow scan|list | autonomy narrow lift <id> --by <actor> --note <text> | memory search|list [--include-untrusted --by <actor>]|attest <entry_id> --by <operator>|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | verify-chain | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | console",
       );
       return 0;
     }
@@ -634,6 +639,57 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
     if (command === "org" && subcommand === "control") {
       printJson(write, new OrgControlService(database).get(selectedWorkspace));
       return 0;
+    }
+    if (command === "autonomy" && subcommand === "narrow") {
+      const action = positions[2] ?? "";
+      const narrowing = new NarrowingService(database);
+      if (action === "ratify") {
+        const intOption = (name: string, minimum: number): number => {
+          const value = Number.parseInt(requireOption(args, name), 10);
+          if (!Number.isInteger(value) || value < minimum) {
+            throw new Error(`${name} must be an integer >= ${minimum}`);
+          }
+          return value;
+        };
+        printJson(
+          write,
+          narrowing.ratifyPolicy({
+            workspace_id: selectedWorkspace,
+            ratified_by: requireOption(args, "--by"),
+            rejection_threshold: intOption("--rejections", 1),
+            violation_threshold: intOption("--violations", 1),
+            window_seconds: intOption("--window", 1),
+            cooldown_seconds: intOption("--cooldown", 0),
+          }),
+        );
+        return 0;
+      }
+      if (action === "scan") {
+        printJson(write, narrowing.scan({ workspace_id: selectedWorkspace }));
+        return 0;
+      }
+      if (action === "list") {
+        printJson(write, narrowing.list(selectedWorkspace));
+        return 0;
+      }
+      if (action === "lift") {
+        const suspensionId = positions[3];
+        if (!suspensionId) {
+          throw new Error("suspension id is required");
+        }
+        const suspension = new GrantSuspensionStore(database).get(suspensionId);
+        if (!suspension || suspension.workspace_id !== selectedWorkspace) {
+          throw new Error(`grant suspension not found in workspace: ${suspensionId}`);
+        }
+        printJson(
+          write,
+          narrowing.lift(suspensionId, {
+            actor: requireOption(args, "--by"),
+            note: requireOption(args, "--note"),
+          }),
+        );
+        return 0;
+      }
     }
     if (command === "approvals" && subcommand === "approve") {
       const approvalId = positions[2];

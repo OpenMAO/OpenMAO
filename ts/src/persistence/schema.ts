@@ -451,6 +451,29 @@ CREATE TABLE IF NOT EXISTS autonomy_cases (
 CREATE INDEX IF NOT EXISTS idx_autonomy_cases_org
   ON autonomy_cases (workspace_id, org_id);
 
+CREATE TABLE IF NOT EXISTS narrowing_policies (
+  workspace_id TEXT PRIMARY KEY,
+  payload_json TEXT NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+);
+
+CREATE TABLE IF NOT EXISTS grant_suspensions (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  capability_name TEXT NOT NULL,
+  status TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+);
+
+-- At most one ACTIVE suspension per (workspace, actor, capability), enforced at the DB level.
+-- The partial index also serves the per-decision call-time lookup in the capability gateway,
+-- so reading "is this grant suspended?" stays a cheap indexed probe on the hot path.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_grant_suspensions_one_active
+  ON grant_suspensions (workspace_id, actor_id, capability_name)
+  WHERE status = 'active';
+
 CREATE TABLE IF NOT EXISTS active_run_locks (
   workspace_id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,

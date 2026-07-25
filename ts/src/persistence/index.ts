@@ -47,6 +47,11 @@ export {
   ModelResponseConflictError,
   ModelResponseStore,
 } from "./model-io.js";
+export {
+  GrantSuspensionConflictError,
+  GrantSuspensionStore,
+  NarrowingPolicyStore,
+} from "./narrowing.js";
 export { NotificationStore } from "./notifications.js";
 export {
   AgentConflictError,

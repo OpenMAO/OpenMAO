@@ -809,6 +809,45 @@ export const AutonomyCaseSchema = z
   })
   .strict();
 
+// #120 asymmetric autonomy. A `NarrowingPolicy` is the operator-ratified configuration for
+// evidence-triggered grant suspension. There are no defaults that act silently: a workspace
+// without a ratified policy is never scanned, so narrowing can only ever run on thresholds a
+// human explicitly ratified. Single row per workspace; re-ratifying replaces it.
+export const NarrowingPolicySchema = z
+  .object({
+    workspace_id: CanonicalIdSchema,
+    ratified_by: z.string().regex(/\S/, "ratified_by must be a non-blank operator string"),
+    rejection_threshold: z.number().int().min(1),
+    violation_threshold: z.number().int().min(1),
+    window_seconds: z.number().int().min(1),
+    cooldown_seconds: z.number().int().min(0),
+    ratified_at: UtcTimestampSchema,
+  })
+  .strict();
+
+// #120 asymmetric autonomy. A `GrantSuspension` suspends ONE capability grant for ONE actor,
+// created only by the deterministic narrowing scan over recorded evidence (the event ids in
+// `evidence_refs`). Narrowing is asymmetric by construction: suspensions are machine-created
+// from evidence, but only a human can lift one (`lifted_by` + `lift_note`), and never before
+// `cooldown_until` — the hysteresis against flapping.
+export const GrantSuspensionSchema = z
+  .object({
+    id: CanonicalIdSchema,
+    workspace_id: CanonicalIdSchema,
+    actor_id: z.string(),
+    capability_name: z.string(),
+    status: z.enum(["active", "lifted"]).default("active"),
+    trigger: z.enum(["repeated_rejections", "policy_violations"]),
+    evidence_refs: z.array(CanonicalIdSchema).default([]),
+    reason: z.string(),
+    created_at: UtcTimestampSchema,
+    cooldown_until: UtcTimestampSchema,
+    lifted_at: UtcTimestampSchema.nullable().default(null),
+    lifted_by: z.string().nullable().default(null),
+    lift_note: z.string().nullable().default(null),
+  })
+  .strict();
+
 export const CollectiveMemorySummarySchema = z
   .object({
     id: CanonicalIdSchema,
@@ -880,6 +919,8 @@ export const canonicalModelSchemas = {
   OrgChangeApplication: OrgChangeApplicationSchema,
   OrgControlState: OrgControlStateSchema,
   AutonomyCase: AutonomyCaseSchema,
+  NarrowingPolicy: NarrowingPolicySchema,
+  GrantSuspension: GrantSuspensionSchema,
   WorldModelSnapshot: WorldModelSnapshotSchema,
 } as const;
 
@@ -955,4 +996,6 @@ export type OrgChangeApplication = z.infer<typeof OrgChangeApplicationSchema>;
 export type OrgControlState = z.infer<typeof OrgControlStateSchema>;
 export type AutonomyLevel = z.infer<typeof AutonomyLevelSchema>;
 export type AutonomyCase = z.infer<typeof AutonomyCaseSchema>;
+export type NarrowingPolicy = z.infer<typeof NarrowingPolicySchema>;
+export type GrantSuspension = z.infer<typeof GrantSuspensionSchema>;
 export type WorldModelSnapshot = z.infer<typeof WorldModelSnapshotSchema>;

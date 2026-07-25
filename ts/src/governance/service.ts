@@ -14,7 +14,13 @@ import {
 } from "../contracts/index.js";
 import type { OrgRegistry } from "../org/index.js";
 import type { Database } from "../persistence/index.js";
-import { EventStore, OrganizationStore, WorkspaceStore } from "../persistence/index.js";
+import {
+  EventStore,
+  GrantSuspensionStore,
+  OrganizationStore,
+  WorkspaceStore,
+} from "../persistence/index.js";
+import { suspendedGrantReason } from "./narrowing.js";
 
 type AutonomyLevel = Organization["autonomy_level"];
 
@@ -80,12 +86,14 @@ function maxRisk(
 
 export class GovernanceService {
   private readonly events: EventStore;
+  private readonly suspensions: GrantSuspensionStore;
 
   constructor(
     private readonly database: Database,
     private readonly orgRegistry: OrgRegistry,
   ) {
     this.events = new EventStore(database);
+    this.suspensions = new GrantSuspensionStore(database);
   }
 
   decideHandoff(input: {
@@ -123,7 +131,14 @@ export class GovernanceService {
       outcome = "block";
       reason = `Agent role lacks capability grant: ${call.capability_name}.`;
     } else {
-      ({ outcome, reason } = this.capabilityApprovalDecision(call, capability));
+      // Narrowing gate (#120): right after the grant check, before any approval logic.
+      const suspensionReason = this.suspendedGrantBlockReason(call);
+      if (suspensionReason) {
+        outcome = "block";
+        reason = suspensionReason;
+      } else {
+        ({ outcome, reason } = this.capabilityApprovalDecision(call, capability));
+      }
     }
 
     return PolicyDecisionSchema.parse({
@@ -136,6 +151,20 @@ export class GovernanceService {
       outcome,
       reason,
     });
+  }
+
+  // Narrowing gate (#120): block reason when the (workspace, actor, capability) grant is
+  // under an active suspension, else null. This is THE call-time read of the suspension
+  // store — a fresh indexed SQLite probe on every capability decision, shared by the
+  // role-grant path (decideCapability above) and the external-worker path (the registry's
+  // worker decision), so neither surface can serve a stale or bind-time-cached view.
+  suspendedGrantBlockReason(call: CapabilityCall): string | null {
+    const suspension = this.suspensions.findActive(
+      call.workspace_id,
+      call.requested_by,
+      call.capability_name,
+    );
+    return suspension ? suspendedGrantReason(suspension) : null;
   }
 
   // The organization's current autonomy level for a workspace. Binds policy to the
