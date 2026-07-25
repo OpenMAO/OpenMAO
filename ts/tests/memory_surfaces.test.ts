@@ -12,6 +12,7 @@ import {
   PromotionCandidateSchema,
   WorkspaceSchema,
 } from "../src/contracts/index.js";
+import { PromotionService } from "../src/memory/index.js";
 import {
   Database,
   MemoryEntryStore,
@@ -42,6 +43,8 @@ function seed(): void {
   const workspace = WorkspaceSchema.parse(fixture.workspace);
   workspaceId = workspace.id;
   new WorkspaceStore(db).save(workspace);
+  // Operator-attested so the seeded corpus is guidance-eligible under the
+  // provenance invariant (#113) and stays visible to the default surfaces.
   const prov = {
     agent_id: null,
     role_id: null,
@@ -49,6 +52,8 @@ function seed(): void {
     run_id: null,
     source_event_id: null,
     note: null,
+    capability_result_id: null,
+    attested_by: "test_operator",
   };
   const entries = new MemoryEntryStore(db);
   entries.save(
@@ -79,6 +84,11 @@ function seed(): void {
       created_at: "2026-05-27T15:20:01Z",
     }),
   );
+  // The bare `attested_by` confers nothing without a resolvable attestation
+  // event (#113), so put the operator attestation on the record for both.
+  const promotion = new PromotionService(db);
+  promotion.attestMemory(SOURCE, { attested_by: prov.attested_by });
+  promotion.attestMemory(CORROBORATOR, { attested_by: prov.attested_by });
   new PromotionCandidateStore(db).save(
     PromotionCandidateSchema.parse({
       id: CANDIDATE,
@@ -211,6 +221,73 @@ describe("memory operator surfaces", () => {
         },
       );
       expect(response.status).toBe(404);
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    }
+  });
+
+  it("never surfaces untrusted individual memory in the default API read (#113)", async () => {
+    const owner = "agent_99999999999999999999999999999999";
+    const attestedId = "mem_c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1";
+    const untrustedId = "mem_c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2";
+    const blankProv = {
+      agent_id: null,
+      role_id: null,
+      task_id: null,
+      run_id: null,
+      source_event_id: null,
+      note: null,
+      capability_result_id: null,
+      attested_by: null,
+    };
+    const db = new Database(dbPath);
+    const entries = new MemoryEntryStore(db);
+    for (const [id, attested] of [
+      [attestedId, true],
+      [untrustedId, false],
+    ] as const) {
+      entries.save(
+        MemoryEntrySchema.parse({
+          id,
+          workspace_id: workspaceId,
+          scope: "individual",
+          owner_id: owner,
+          kind: "semantic",
+          content: `owned note about deliverability ${id}`,
+          provenance: attested ? { ...blankProv, attested_by: "test_operator" } : blankProv,
+          confidence: 0.6,
+          status: "confirmed",
+          created_at: "2026-05-27T15:20:02Z",
+        }),
+      );
+      if (attested) {
+        // Proof on the record so it is guidance-eligible; the unprovenanced
+        // entry stays untrusted and must not surface by default.
+        new PromotionService(db).attestMemory(id, { attested_by: "test_operator" });
+      }
+    }
+    db.close();
+
+    const server = createServer({ dbPath, operatorToken });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const headers = {
+      "x-openmao-actor": "test_operator",
+      "x-openmao-operator-token": operatorToken,
+    };
+    try {
+      const individual = (await fetch(
+        `${baseUrl}/memory/individual/${owner}?workspace_id=${workspaceId}`,
+        { headers },
+      ).then((response) => response.json())) as { id: string }[];
+      const ids = individual.map((entry) => entry.id);
+      expect(ids).toContain(attestedId);
+      expect(ids).not.toContain(untrustedId);
     } finally {
       await new Promise<void>((resolve) => {
         server.close(() => resolve());

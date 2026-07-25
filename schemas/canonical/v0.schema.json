@@ -146,6 +146,30 @@
             "null"
           ],
           "default": null
+        },
+        "capability_result_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9]*_[0-9a-f]{32}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "attested_by": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "additionalProperties": false
@@ -1973,6 +1997,30 @@
               "type": [
                 "string",
                 "null"
+              ],
+              "default": null
+            },
+            "capability_result_id": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9]*_[0-9a-f]{32}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "attested_by": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
               ],
               "default": null
             }

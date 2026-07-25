@@ -419,6 +419,8 @@ export class SpineService {
     }
 
     this.checkpointNode(run, "approval_resolved", [`${resolvedApprovalId}:approved`]);
+    // The demo ratifies a single proposed candidate with no corroboration, so
+    // it opts into the 0 corroboration floor explicitly (#101 default is 1).
     const collective = new PromotionService(this.database, {
       collective_memory_dir: this.collectiveMemoryDir(),
       // The deterministic demo ratifies without corroboration on purpose; production promotion
@@ -952,6 +954,18 @@ export class SpineService {
   }
 
   private writeIndividualMemory(task: TaskEnvelope, artifact: Artifact) {
+    // Provenance invariant (#113): the demo memories must derive
+    // guidance-eligible, so anchor them to the artifact_created event the run
+    // just recorded (recordNode idempotency key pattern `${run.id}:${node}`).
+    const artifactEvent = this.events.getByIdempotencyKey(
+      WORKSPACE_ID,
+      `${RUN_ID}:artifact_created`,
+    );
+    if (!artifactEvent) {
+      throw new SpineServiceError(
+        "artifact_created event must be recorded before individual memory is written",
+      );
+    }
     const service = new PromotionService(this.database, {
       collective_memory_dir: this.collectiveMemoryDir(),
     });
@@ -967,6 +981,7 @@ export class SpineService {
           agent_id: RESEARCHER_AGENT_ID,
           run_id: RUN_ID,
           task_id: task.id,
+          source_event_id: artifactEvent.id,
           note: `artifact:${artifact.id}`,
         },
         confidence: 0.75,
@@ -986,6 +1001,7 @@ export class SpineService {
           agent_id: COORDINATOR_AGENT_ID,
           run_id: RUN_ID,
           task_id: task.id,
+          source_event_id: artifactEvent.id,
           note: `artifact:${artifact.id}`,
         },
         confidence: 0.8,

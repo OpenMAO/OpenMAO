@@ -46,6 +46,12 @@ export const ProvenanceSchema = z
     run_id: CanonicalIdSchema.nullable().default(null),
     source_event_id: CanonicalIdSchema.nullable().default(null),
     note: z.string().nullable().default(null),
+    // Trust-bearing refs (#113). The trust tier of a memory entry is never
+    // writer-asserted: it is derived by resolving these refs against the
+    // stores (see memory/provenance.ts deriveMemoryTrust). Both are additive
+    // with null defaults so pre-#113 payloads keep parsing.
+    capability_result_id: CanonicalIdSchema.nullable().default(null),
+    attested_by: z.string().min(1).nullable().default(null),
   })
   .strict();
 

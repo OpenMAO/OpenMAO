@@ -911,20 +911,26 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "GET" && approvalRoute.individualMemoryAgentId) {
+        // Provenance invariant (#113): the individual-memory read goes through
+        // the trust-filtered retrieval, so untrusted memory never surfaces here
+        // without the reviewed path. Default = guidance-eligible only; the
+        // response stays a raw MemoryEntry[] for the console contract.
         sendJson(
           response,
           200,
-          new MemoryEntryStore(database)
-            .listForWorkspace(context.workspaceId)
-            .filter(
-              (entry) =>
-                entry.scope === "individual" &&
-                entry.owner_id === approvalRoute.individualMemoryAgentId,
-            ),
+          new MemoryRetrievalService(database)
+            .list(context.workspaceId, {
+              scope: "individual",
+              owner_id: approvalRoute.individualMemoryAgentId,
+            })
+            .map((result) => result.entry),
         );
         return;
       }
       if (request.method === "GET" && url.pathname === "/memory/collective") {
+        // Collective memory is inherently guidance-eligible: only ratified
+        // entries become collective (#113), so reading the store directly here
+        // surfaces nothing untrusted and needs no trust filter.
         sendJson(
           response,
           200,

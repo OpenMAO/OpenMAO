@@ -11,7 +11,7 @@ import {
   PromotionCandidateSchema,
   WorkspaceSchema,
 } from "../src/contracts/index.js";
-import { MemoryRetrievalService } from "../src/memory/index.js";
+import { MemoryRetrievalService, PromotionService } from "../src/memory/index.js";
 import {
   CorroborationStore,
   Database,
@@ -19,6 +19,8 @@ import {
   PromotionCandidateStore,
   WorkspaceStore,
 } from "../src/persistence/index.js";
+
+const ATTESTOR = "test_operator";
 
 const fixturePath = new URL("../../tests/fixtures/canonical_v0.json", import.meta.url);
 const WS = "ws_11111111111111111111111111111111";
@@ -38,6 +40,8 @@ function saveEntry(over: Partial<MemoryEntry> & Pick<MemoryEntry, "id" | "conten
     scope: "individual",
     owner_id: null,
     kind: "semantic",
+    // Operator-attested so the corpus is guidance-eligible under the
+    // provenance invariant (#113); recall-by-default only sees such memory.
     provenance: {
       agent_id: null,
       role_id: null,
@@ -45,12 +49,18 @@ function saveEntry(over: Partial<MemoryEntry> & Pick<MemoryEntry, "id" | "conten
       run_id: null,
       source_event_id: null,
       note: null,
+      capability_result_id: null,
+      attested_by: ATTESTOR,
     },
     confidence: 0.5,
     status: "confirmed",
     created_at: "2026-05-27T15:20:00Z",
   };
-  return new MemoryEntryStore(database).save(MemoryEntrySchema.parse({ ...base, ...over }));
+  const entry = new MemoryEntryStore(database).save(MemoryEntrySchema.parse({ ...base, ...over }));
+  // The bare `attested_by` confers nothing without a resolvable attestation
+  // event (#113), so put the operator attestation on the record.
+  new PromotionService(database).attestMemory(entry.id, { attested_by: ATTESTOR });
+  return entry;
 }
 
 function seedCorpus(): void {
@@ -67,6 +77,8 @@ function seedCorpus(): void {
       run_id: null,
       source_event_id: null,
       note: `source_promotion:${CANDIDATE_ID}`,
+      capability_result_id: null,
+      attested_by: "test_operator",
     },
   });
   saveEntry({
@@ -207,6 +219,8 @@ describe("evidence-backed memory retrieval", () => {
         run_id: null,
         source_event_id: null,
         note: "source_promotion:",
+        capability_result_id: null,
+        attested_by: "test_operator",
       },
     });
 

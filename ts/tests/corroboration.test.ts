@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  EventPayloadSchema,
   MemoryEntrySchema,
   type PromotionCandidate,
   PromotionCandidateSchema,
@@ -52,6 +53,29 @@ function seedRunningRun(): Run {
   });
   const runStore = new RunStore(database);
   runStore.create(queued);
+  // Replay the canonical fixture event (after its run exists) so the fixture
+  // memory entries' `provenance.source_event_id` resolves and they derive
+  // guidance-eligible under the provenance invariant (#113).
+  const event = fixture.event as {
+    id: string;
+    workspace_id: string;
+    run_id: string | null;
+    kind: string;
+    actor: string;
+    payload: Record<string, unknown>;
+    idempotency_key: string | null;
+    timestamp: string;
+  };
+  new EventStore(database).append({
+    workspace_id: event.workspace_id,
+    run_id: event.run_id,
+    kind: event.kind,
+    actor: event.actor,
+    payload: EventPayloadSchema.parse(event.payload),
+    idempotency_key: event.idempotency_key,
+    event_id: event.id,
+    timestamp: event.timestamp,
+  });
   return runStore.setStatus(queued.id, "running", {
     active_node: "run_started",
     updated_at: "2026-05-27T15:20:02Z",
@@ -264,6 +288,8 @@ describe("corroboration-based ratification", () => {
 
   it("rejects corroboration of a resolved promotion candidate", () => {
     const run = seedRunningRun();
+    // Ratifies with no corroboration to reach the resolved state, so it opts
+    // into the 0 corroboration floor explicitly (#101 default is 1).
     const service = new PromotionService(database, {
       collective_memory_dir: join(tmpRoot, "collective_memory"),
       min_corroboration: 0,

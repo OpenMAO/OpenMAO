@@ -11,6 +11,7 @@ import {
   ArtifactSchema,
   CapabilitySchema,
   CorroborationSchema,
+  EventPayloadSchema,
   GoalSchema,
   IngestionRecordSchema,
   MemoryEntrySchema,
@@ -86,6 +87,35 @@ async function seedRunningRun(): Promise<Run> {
   });
 }
 
+/**
+ * Replays the canonical fixture event so the fixture memory entry's
+ * `provenance.source_event_id` resolves and the entry derives
+ * guidance-eligible under the provenance invariant (#113).
+ */
+async function seedFixtureSourceEvent(): Promise<void> {
+  const fixture = await loadFixture();
+  const event = fixture.event as {
+    id: string;
+    workspace_id: string;
+    run_id: string | null;
+    kind: string;
+    actor: string;
+    payload: Record<string, unknown>;
+    idempotency_key: string | null;
+    timestamp: string;
+  };
+  new EventStore(database).append({
+    workspace_id: event.workspace_id,
+    run_id: event.run_id,
+    kind: event.kind,
+    actor: event.actor,
+    payload: EventPayloadSchema.parse(event.payload),
+    idempotency_key: event.idempotency_key,
+    event_id: event.id,
+    timestamp: event.timestamp,
+  });
+}
+
 async function seedWorldInputs(run: Run): Promise<void> {
   const fixture = await loadFixture();
   new GoalStore(database).save(GoalSchema.parse(fixture.goal));
@@ -115,7 +145,10 @@ afterEach(() => {
 describe("TypeScript memory promotion and world model", () => {
   it("gates collective memory promotion and writes approved collective markdown", async () => {
     const run = await seedRunningRun();
+    await seedFixtureSourceEvent();
     const fixture = await loadFixture();
+    // No corroboration is recorded in this case, so it opts into the 0
+    // corroboration floor explicitly (#101 default is 1).
     const service = new PromotionService(database, {
       collective_memory_dir: join(tmpRoot, "collective_memory"),
       min_corroboration: 0,
@@ -154,6 +187,7 @@ describe("TypeScript memory promotion and world model", () => {
 
   it("surfaces collective memory with corroboration evidence in a rebuildable world model", async () => {
     const run = await seedRunningRun();
+    await seedFixtureSourceEvent();
     const fixture = await loadFixture();
     const service = new PromotionService(database, {
       collective_memory_dir: join(tmpRoot, "collective_memory"),
