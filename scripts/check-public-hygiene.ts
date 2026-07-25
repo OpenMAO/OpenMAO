@@ -14,7 +14,8 @@ const trackedFiles = execFileSync("git", ["ls-files"], { encoding: "utf8" })
 const forbiddenTrackedPaths = [
   /\.DS_Store$/,
   /^\.claude\//,
-  /^docs\/adr\//,
+  // docs/adr/ is public per ADR-0006 (public-or-dead governance records, Option A);
+  // ADRs publish there, starting with ADR-0013.
   /^docs\/research\//,
   /^docs\/(?:sessions|audit-trails|runbooks|audits|evidence)\//,
   /^internal\//,
@@ -49,10 +50,9 @@ const forbiddenPublicReferences = [
     name: "local audit workflow",
     pattern: /\.[c]laude\/|ship-with-audit/i,
   },
-  {
-    name: "pre-public planning marker",
-    pattern: /\b[A]DR-000\d\b|docs\/adr\//i,
-  },
+  // ADR references and docs/adr/ paths are public per ADR-0006 Option A. Not-yet-published
+  // ADR numbers (0001-0012) may be referenced by name; docs/adr/README.md documents the
+  // numbering gap as deliberate until the ADR-0006 hygiene pass restores them.
   {
     name: "private reference implementation history",
     pattern:

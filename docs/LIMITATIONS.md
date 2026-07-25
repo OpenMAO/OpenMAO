@@ -1,6 +1,6 @@
 # Known Limitations
 
-**Status:** maintained honesty document. Last reviewed 2026-06-11.
+**Status:** maintained honesty document. Last reviewed 2026-07-25.
 
 A governance project should state its own boundaries instead of letting reviewers discover them.
 Every claim below is meant to match the code on `main`. If a statement here overstates or
@@ -18,17 +18,26 @@ nothing to authenticate with on their own.
 What this does not cover: if an operator hands a worker raw credentials outside OpenMAO, that
 worker is ungoverned. No software layer here can prevent that. "Non-bypassable" therefore means
 bypassable only by violating the deployment contract, not by anything an agent can do inside it.
-Making this boundary provable rather than asserted — execution-claim events that are verifiably
-distinct from worker self-reports, plus a stated deployment topology — is
-[#111](https://github.com/OpenMAO/OpenMAO/issues/111).
+The topology that makes enforced mode true — and what each deployment mode actually provides —
+is now stated in [DEPLOYMENT_MODES.md](DEPLOYMENT_MODES.md) ("Enforced-mode topology"). Making
+the boundary provable rather than asserted — execution-claim events that are verifiably distinct
+from worker self-reports, plus omission detection — is
+[#111](https://github.com/OpenMAO/OpenMAO/issues/111), with the contract-level design settled in
+[ADR-0013](adr/ADR-0013-reconcilability-as-a-capability-property.md).
 
 ## 2. The platform trust boundary on main is weaker than the capability boundary
 
-`main` currently uses a single shared operator token and a self-asserted actor header, and there is
-no proposer-must-not-approve guard. A holder of the operator token can act as any actor. Hardened
-per-worker scoped tokens and the approval-integrity fixes exist on branches and are tracked at
-[#101](https://github.com/OpenMAO/OpenMAO/issues/101) and
-[#102](https://github.com/OpenMAO/OpenMAO/issues/102). Until they merge, treat the deployment as
+Per-worker scoped tokens ([#102](https://github.com/OpenMAO/OpenMAO/issues/102)) and the
+approval-integrity fixes — proposer must not approve, blank-actor rejection, a production
+corroboration floor ([#101](https://github.com/OpenMAO/OpenMAO/issues/101)) — are now on `main`
+(2026-07-25). Workers authenticate with their own scoped, default-deny tokens; their actor and
+workspace are forced to the resolved identity and cannot be spoofed through headers.
+
+What remains: the *operator* surface still uses a single shared token with a self-asserted actor
+header, so a holder of the operator token can act as any operator-side actor. Binding acting
+identity at the HTTP boundary and a first-class Member/Principal model are
+[#92](https://github.com/OpenMAO/OpenMAO/issues/92) and
+[#93](https://github.com/OpenMAO/OpenMAO/issues/93). Until then, treat the operator token as
 single-trusted-operator.
 
 ## 3. At-most-once has a crash window at the provider edge
@@ -37,45 +46,51 @@ OpenMAO guarantees at most one provider invocation per capability call (durable 
 execution, node-effect and in-flight guards, restart-replay tested). It cannot guarantee remote
 exactly-once: if a request times out after the remote system performed the effect but before the
 result is recorded, the call is recorded as failed even though the effect exists. The GitHub
-provider documents this window and the reconciliation step. Claim hygiene for this is part of
-[#111](https://github.com/OpenMAO/OpenMAO/issues/111).
+provider documents this window and the reconciliation step. Scope: the durable node-effect guard
+holds **per backing database** — multi-replica deployments that do not share the backing store
+are outside the verified claim. Making the window detectable (intent-without-outcome
+reconciliation) and fault-injection-verifying it is part of
+[#111](https://github.com/OpenMAO/OpenMAO/issues/111) /
+[ADR-0013](adr/ADR-0013-reconcilability-as-a-capability-property.md).
 
-## 4. The event log is tamper-evident, but verification has no operator surface yet
+## 4. The event log is tamper-evident; two auditability gaps remain
 
 Events are append-only (enforced with SQL triggers) and hash-chained (SHA-256, each event carrying
-the previous event's hash back to a fixed genesis value), and the intended call is logged before
-execution. Two gaps: chain verification currently exists only as code, with no one-command operator
-surface ([#119](https://github.com/OpenMAO/OpenMAO/issues/119)), and events do not yet carry an
-expected-vs-actual decision envelope that would make regressions detectable from the log alone
-([#114](https://github.com/OpenMAO/OpenMAO/issues/114)). Events reported by cooperative workers are
-attested by the worker, not yet provably distinct from enforced-path events
+the previous event's hash back to a fixed genesis value), the intended call is logged before
+execution, and chain verification has a one-command operator surface (`openmao verify-chain`,
+[#119](https://github.com/OpenMAO/OpenMAO/issues/119), shipped). Two gaps: events do not yet carry
+an expected-vs-actual decision envelope that would make regressions detectable from the log alone
+([#114](https://github.com/OpenMAO/OpenMAO/issues/114)), and events reported by cooperative
+workers are attested by the worker, not yet provably distinct from enforced-path events
 ([#111](https://github.com/OpenMAO/OpenMAO/issues/111)).
 
-## 5. The demo proves the approve path; the deny path is a packaging gap
+## 5. Resolved: the demo covers approve and deny
 
 `make demo` and `make demo-approve` show suspend-on-approval, durable resume, and the promoted
-memory. There is not yet a `make demo-deny` showing a rejected approval and a blocked ungranted
-call on the record ([#118](https://github.com/OpenMAO/OpenMAO/issues/118)). The rejection and
-deny-by-default paths exist in code and tests.
+memory; `make demo-deny` ([#118](https://github.com/OpenMAO/OpenMAO/issues/118), shipped) shows a
+rejected approval and a blocked ungranted call on the record. Kept here so the section numbering
+below stays stable.
 
 ## 6. The self-correction loop is partially real
 
 Learning signals and organization-change proposals are real and deterministic. But exactly one
-change type has a real applier today (memory cleanup); every other "applied" change is a marker
-that records the decision without changing behavior, and the marker path is not revertible from the
-operator surface ([#105](https://github.com/OpenMAO/OpenMAO/issues/105)). The causal-diagnosis
-layer is a library with tests, advisory by design, with no operator surface. The autonomy dial's
-widening service exists with tests but has no CLI, API, or console surface — autonomy cannot be
-widened in a running deployment yet.
+change type has a real applier today (memory cleanup); every other "applied" change is recorded
+truthfully as `acknowledged` — a decision on the record, not a changed behavior — and is
+revertible/withdrawable from the operator surface
+([#105](https://github.com/OpenMAO/OpenMAO/issues/105), shipped). The causal-diagnosis layer is a
+library with tests, advisory by design, with no operator surface. Autonomy *narrowing* is now
+automatic on ratified evidence with a CLI surface (`autonomy narrow`,
+[#120](https://github.com/OpenMAO/OpenMAO/issues/120)); the *widening* service exists with tests
+but still has no CLI, API, or console surface — autonomy cannot be widened in a running
+deployment yet, which is the intended asymmetry until it can.
 
-## 7. Memory provenance is not yet a hard invariant
+## 7. Resolved: memory provenance is a hard invariant
 
-Promotion to collective memory requires human ratification, and corroboration means an independent
-actor citing distinct evidence. But individual memory without provenance is currently excluded from
-the world model rather than structurally forbidden.
-[#113](https://github.com/OpenMAO/OpenMAO/issues/113) makes provenance mandatory — one of
-capability result, event, or explicit operator attestation — with unprovenanced memory permanently
-untrusted.
+Provenance is now mandatory ([#113](https://github.com/OpenMAO/OpenMAO/issues/113), shipped):
+every memory entry derives a trust tier from its provenance — a capability result, an event, or a
+proof-backed operator attestation — and promotion, corroboration, and recall are all
+provenance-gated. Unprovenanced memory is permanently untrusted: excluded from recall and the
+world model by default, promotable never. Kept here so the section numbering below stays stable.
 
 ## 8. Single human operator, single organization
 
@@ -86,11 +101,12 @@ per-tenant. The supported deployment is a single organization in local mode (see
 
 ## 9. No mid-run revocation channel
 
-Approval gates run before execution. Once a long-running bounded task is underway, there is no
-built-in way to narrow its grants mid-flight; revocation today means rejecting future calls. A
-revocation channel is part of the capability-scoping design work
-([#102](https://github.com/OpenMAO/OpenMAO/issues/102),
-[#112](https://github.com/OpenMAO/OpenMAO/issues/112)).
+Approval gates run before execution, and evidence-triggered grant suspension
+([#120](https://github.com/OpenMAO/OpenMAO/issues/120)) now narrows an actor's grants
+automatically — but both act on *future* calls. Once a long-running bounded task is underway,
+there is no built-in way to revoke a call already in flight. A mid-flight revocation channel is
+part of the capability-scoping design work
+([#112](https://github.com/OpenMAO/OpenMAO/issues/112), ADR-0011).
 
 ## 10. Action governance, not reasoning governance
 
@@ -116,11 +132,11 @@ Status against the OWASP Top 10 for Agentic Applications (December 2025), stated
 
 | Risk | Where OpenMAO stands today | Open gap |
 | --- | --- | --- |
-| Tool misuse | Addressed: deny-by-default capability grants, typed schemas, approval gates, broker-held credentials | Per-run token attenuation ([#102](https://github.com/OpenMAO/OpenMAO/issues/102)) |
-| Human-agent trust exploitation | Addressed in part: approvals are durable state with recorded rejection | Proposer-must-not-approve guard not yet on main ([#101](https://github.com/OpenMAO/OpenMAO/issues/101)) |
-| Identity abuse | Partial: actor model exists; platform tokens are weak on main | [#101](https://github.com/OpenMAO/OpenMAO/issues/101), [#102](https://github.com/OpenMAO/OpenMAO/issues/102) |
-| Memory poisoning | Addressed in part: human-ratified promotion, independent corroboration | Provenance as hard invariant ([#113](https://github.com/OpenMAO/OpenMAO/issues/113)) |
-| Rogue agents | Partial: autonomy starts advisory and is bounded by grants | No mid-run revocation (§9); autonomy dial has no operator surface (§6) |
+| Tool misuse | Addressed: deny-by-default capability grants, typed schemas, approval gates, broker-held credentials, per-worker scoped tokens | Per-call scoped-credential minting (ADR-0011) |
+| Human-agent trust exploitation | Addressed: approvals are durable state with recorded rejection; proposer must not approve; production corroboration floor ([#101](https://github.com/OpenMAO/OpenMAO/issues/101)) | Structural multi-human separation of duties ([#94](https://github.com/OpenMAO/OpenMAO/issues/94)) |
+| Identity abuse | Partial: workers hold scoped, unspoofable identities ([#102](https://github.com/OpenMAO/OpenMAO/issues/102)); the operator surface is still a shared token | [#92](https://github.com/OpenMAO/OpenMAO/issues/92), [#93](https://github.com/OpenMAO/OpenMAO/issues/93) |
+| Memory poisoning | Addressed: human-ratified promotion, independent corroboration, provenance as hard invariant with provenance-gated recall ([#113](https://github.com/OpenMAO/OpenMAO/issues/113)) | Audit-payload hardening ([#80](https://github.com/OpenMAO/OpenMAO/issues/80)) |
+| Rogue agents | Partial: autonomy starts advisory and bounded; evidence-triggered suspension narrows grants automatically, widening is human-only ([#120](https://github.com/OpenMAO/OpenMAO/issues/120)) | No mid-flight revocation (§9); widening has no operator surface (§6) |
 | Cascading failures | Partial: bounded work envelopes, at-most-once invocation guards | Provider-edge crash window (§3) |
 | Goal hijacking | Out of scope: reasoning-layer risk; the gate bounds blast radius (§10) | — |
 | Code execution | Out of scope: runtime-sandbox layer (§11) | — |
