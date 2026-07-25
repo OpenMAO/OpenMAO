@@ -1,13 +1,20 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   createServer as createHttpServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
 
+import { CapabilityRegistryError } from "../capabilities/index.js";
 import { ChiefOfStaffService } from "../chief_of_staff/index.js";
-import { utcNow } from "../contracts/index.js";
-import { ApprovalService } from "../governance/index.js";
+import {
+  type CapabilityCall,
+  CapabilityCallSchema,
+  newId,
+  type ResourceGrants,
+  utcNow,
+} from "../contracts/index.js";
+import { ApprovalService, SelfApprovalError } from "../governance/index.js";
 import { IngestionService } from "../ingestion/index.js";
 import { LearningService } from "../learning/index.js";
 import { MemoryRetrievalService, PromotionService } from "../memory/index.js";
@@ -15,7 +22,9 @@ import { OrgChangeService } from "../org/index.js";
 import {
   AgentStore,
   BoundedWorkEnvelopeStore,
+  CapabilityCallConflictError,
   CapabilityCallStore,
+  CapabilityResultConflictError,
   CapabilityResultStore,
   CapabilityStore,
   type Database,
@@ -39,6 +48,8 @@ import {
   materializeRejectedCapabilityApproval,
 } from "../runtime/capabilities.js";
 import { openLocalDatabase } from "../runtime/local.js";
+import { SensitiveMaterialError, safeErrorMessage } from "../security/sensitive-material.js";
+import { WorkerAuthService } from "../security/worker-auth.js";
 import {
   COORDINATOR_AGENT_ID,
   PROMOTION_APPROVAL_ID,
@@ -62,6 +73,7 @@ type ServerOptions = {
 
 const DEFAULT_HTTP_HOST = "127.0.0.1";
 const TOKEN_HEADER = "x-openmao-operator-token";
+const WORKER_TOKEN_HEADER = "x-openmao-worker-token";
 const ACTOR_HEADER = "x-openmao-actor";
 const WORKSPACE_HEADER = "x-openmao-workspace";
 const LEGACY_WORKSPACE_HEADER = "x-openmao-workspace-id";
@@ -79,6 +91,12 @@ function sendHtml(response: ServerResponse, html: string): void {
 
 function sendNotFound(response: ServerResponse): void {
   sendJson(response, 404, { error: "not_found" });
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function routePattern(pathname: string): {
@@ -146,32 +164,86 @@ function headerValue(request: IncomingMessage, name: string): string | null {
   return raw ?? null;
 }
 
+// Constant-time operator-token comparison: hash both sides to a fixed-length digest so neither the
+// token length nor a prefix match is observable through response timing.
+function tokenMatches(provided: string | null, expected: string): boolean {
+  if (provided === null) {
+    return false;
+  }
+  return timingSafeEqual(
+    createHash("sha256").update(provided).digest(),
+    createHash("sha256").update(expected).digest(),
+  );
+}
+
+type Principal = { kind: "operator" } | { kind: "worker"; workerId: string };
+
+type RequestContext = {
+  actor: string;
+  explicitWorkspace: boolean;
+  workspaceId: string;
+  principal: Principal;
+};
+
+// A worker token is permitted ONLY these routes; everything else (envelope issuance, approvals, and
+// every admin/read-all route) requires the operator token. Default-deny for workers.
+function isWorkerAllowed(method: string, pathname: string): boolean {
+  if (method === "GET") {
+    return (
+      pathname === "/workspaces/current" ||
+      pathname === "/capability-calls" ||
+      pathname === "/capability-results" ||
+      /^\/work\/[^/]+\/envelopes$/.test(pathname)
+    );
+  }
+  if (method === "POST") {
+    return pathname === "/capability-calls" || /^\/work\/[^/]+\/outcomes$/.test(pathname);
+  }
+  return false;
+}
+
 function requestContext(
   request: IncomingMessage,
   response: ServerResponse,
   url: URL,
   options: Required<Pick<ServerOptions, "operatorToken" | "workspaceId">>,
-): { actor: string; explicitWorkspace: boolean; workspaceId: string } | null {
-  if (headerValue(request, TOKEN_HEADER) !== options.operatorToken) {
-    sendJson(response, 403, { error: "forbidden" });
-    return null;
+  database: Database,
+): RequestContext | null {
+  // Operator token → full authority. Actor + workspace come from headers as before.
+  if (tokenMatches(headerValue(request, TOKEN_HEADER), options.operatorToken)) {
+    const actor = headerValue(request, ACTOR_HEADER);
+    // Reject missing AND whitespace-only actors: a blank actor cannot anchor an audit trail, so the
+    // operator boundary treats "   " exactly like an absent header (same 400 / missing_actor shape).
+    if (!actor || actor.trim().length === 0) {
+      sendJson(response, 400, { error: "missing_actor" });
+      return null;
+    }
+    const selectedWorkspace =
+      headerValue(request, WORKSPACE_HEADER) ??
+      headerValue(request, LEGACY_WORKSPACE_HEADER) ??
+      url.searchParams.get("workspace_id");
+    return {
+      actor,
+      workspaceId: selectedWorkspace ?? options.workspaceId,
+      explicitWorkspace: selectedWorkspace !== null,
+      principal: { kind: "operator" },
+    };
   }
-
-  const actor = headerValue(request, ACTOR_HEADER);
-  if (!actor) {
-    sendJson(response, 400, { error: "missing_actor" });
-    return null;
+  // Worker token → a scoped principal. The actor and workspace are FORCED to the resolved worker; a
+  // worker can never spoof another identity or workspace through headers.
+  const workerPrincipal = new WorkerAuthService(database).resolve(
+    headerValue(request, WORKER_TOKEN_HEADER),
+  );
+  if (workerPrincipal) {
+    return {
+      actor: workerPrincipal.worker_id,
+      workspaceId: workerPrincipal.workspace_id,
+      explicitWorkspace: true,
+      principal: { kind: "worker", workerId: workerPrincipal.worker_id },
+    };
   }
-
-  const selectedWorkspace =
-    headerValue(request, WORKSPACE_HEADER) ??
-    headerValue(request, LEGACY_WORKSPACE_HEADER) ??
-    url.searchParams.get("workspace_id");
-  return {
-    actor,
-    workspaceId: selectedWorkspace ?? options.workspaceId,
-    explicitWorkspace: selectedWorkspace !== null,
-  };
+  sendJson(response, 403, { error: "forbidden" });
+  return null;
 }
 
 function requireDemoWorkspace(
@@ -277,8 +349,18 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
 
-      const context = requestContext(request, response, url, resolvedOptions);
+      const context = requestContext(request, response, url, resolvedOptions, database);
       if (!context) {
+        return;
+      }
+      // Default-deny: a worker token may reach only its allowlisted routes. This is what makes
+      // envelope issuance, approvals, and every admin route operator-only — so a worker can never
+      // issue itself a wider envelope or approve its own calls (#102).
+      if (
+        context.principal.kind === "worker" &&
+        !isWorkerAllowed(request.method ?? "", url.pathname)
+      ) {
+        sendJson(response, 403, { error: "worker_forbidden" });
         return;
       }
 
@@ -336,19 +418,112 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "GET" && url.pathname === "/capability-calls") {
+        // A worker sees only its OWN calls; the operator sees all in the workspace.
+        const callWorkerId =
+          context.principal.kind === "worker" ? context.principal.workerId : null;
+        const calls = new CapabilityCallStore(database).listForWorkspace(context.workspaceId);
         sendJson(
           response,
           200,
-          new CapabilityCallStore(database).listForWorkspace(context.workspaceId),
+          callWorkerId === null ? calls : calls.filter((c) => c.requested_by === callWorkerId),
         );
         return;
       }
+      // The one out-of-process capability-INITIATE primitive: an external worker submits a
+      // CapabilityCall for gating. The route is deliberately thin — it forces the call's workspace
+      // to the authenticated one and otherwise routes the call UNCHANGED through
+      // CapabilityRegistryService.invoke(), which is the single enforcement point (task-envelope
+      // scope, worker grant, credential-handle binding, side-effect/approval gate, idempotent
+      // at-most-once execution). A hostile body cannot escape those bounds; see #92.
+      if (request.method === "POST" && url.pathname === "/capability-calls") {
+        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
+          return;
+        }
+        const body = await readJsonBody(request);
+        const externalActor = body.external_actor;
+        // A worker principal can only act AS ITSELF — its identity is forced from the authenticated
+        // token, never taken from the body, so it cannot impersonate another worker.
+        const callerWorkerId =
+          context.principal.kind === "worker" ? context.principal.workerId : null;
+        let call: CapabilityCall;
+        try {
+          call = CapabilityCallSchema.parse({
+            id: typeof body.id === "string" ? body.id : newId("call"),
+            workspace_id: context.workspaceId,
+            run_id: String(body.run_id ?? ""),
+            capability_name: String(body.capability_name ?? ""),
+            provider: String(body.provider ?? ""),
+            input: asRecord(body.input),
+            requested_by: callerWorkerId ?? String(body.requested_by ?? ""),
+            external_actor: callerWorkerId
+              ? { actor_type: "worker", actor_id: callerWorkerId, display_name: null }
+              : externalActor && typeof externalActor === "object" && !Array.isArray(externalActor)
+                ? externalActor
+                : null,
+            task_id: String(body.task_id ?? ""),
+            credential_handle:
+              typeof body.credential_handle === "string" ? body.credential_handle : null,
+            side_effecting: body.side_effecting === true,
+            audit_payload: asRecord(body.audit_payload),
+            risk_level: typeof body.risk_level === "string" ? body.risk_level : "low",
+            idempotency_key: String(body.idempotency_key ?? ""),
+          });
+        } catch (error) {
+          sendJson(response, 400, {
+            error: safeErrorMessage(error instanceof Error ? error.message : String(error)),
+          });
+          return;
+        }
+        // A non-empty idempotency key is required: an empty key would be shared by every keyless
+        // call workspace-wide, causing spurious conflicts or silent deduplication.
+        if (!call.idempotency_key) {
+          sendJson(response, 400, { error: "idempotency_key is required" });
+          return;
+        }
+        try {
+          const invocation = await createConfiguredCapabilityRegistry(database).invoke(call);
+          sendJson(response, 200, invocation);
+        } catch (error) {
+          // Reusing an idempotency key with a DIFFERENT call/result id is a client-side conflict, not
+          // a server fault: surface it as 409 with a stable, detail-free code (never echo internal
+          // text). Checked before the generic fallback below.
+          if (error instanceof CapabilityCallConflictError) {
+            sendJson(response, 409, { error: "capability_call_conflict" });
+            return;
+          }
+          if (error instanceof CapabilityResultConflictError) {
+            sendJson(response, 409, { error: "capability_result_conflict" });
+            return;
+          }
+          // Scrub EVERY error (not only CapabilityRegistryError) so a sensitive-material or any other
+          // error can never echo a secret-adjacent string into the response. Registry rejections are
+          // client errors (400); anything else is a server error (500) — still scrubbed.
+          const message = safeErrorMessage(error instanceof Error ? error.message : String(error));
+          const clientError =
+            error instanceof CapabilityRegistryError || error instanceof SensitiveMaterialError;
+          sendJson(response, clientError ? 400 : 500, { error: message });
+        }
+        return;
+      }
       if (request.method === "GET" && url.pathname === "/capability-results") {
-        sendJson(
-          response,
-          200,
-          new CapabilityResultStore(database).listForWorkspace(context.workspaceId),
-        );
+        const results = new CapabilityResultStore(database).listForWorkspace(context.workspaceId);
+        if (context.principal.kind === "worker") {
+          // A worker sees only results for its OWN calls.
+          const ownWorkerId = context.principal.workerId;
+          const ownCallIds = new Set(
+            new CapabilityCallStore(database)
+              .listForWorkspace(context.workspaceId)
+              .filter((c) => c.requested_by === ownWorkerId)
+              .map((c) => c.id),
+          );
+          sendJson(
+            response,
+            200,
+            results.filter((result) => ownCallIds.has(result.call_id)),
+          );
+          return;
+        }
+        sendJson(response, 200, results);
         return;
       }
       if (request.method === "GET" && url.pathname === "/workers") {
@@ -652,7 +827,11 @@ export function createServer(options: ServerOptions = {}) {
             id: typeof body.id === "string" ? body.id : null,
             workspace_id: context.workspaceId,
             envelope_id: String(body.envelope_id ?? ""),
-            worker_id: String(body.worker_id ?? ""),
+            // A worker principal submits outcomes only as ITSELF — forced from the token.
+            worker_id:
+              context.principal.kind === "worker"
+                ? context.principal.workerId
+                : String(body.worker_id ?? ""),
             status: String(body.status ?? "completed") as never,
             summary: String(body.summary ?? ""),
             output:
@@ -673,13 +852,18 @@ export function createServer(options: ServerOptions = {}) {
           sendNotFound(response);
           return;
         }
+        // A worker sees only the envelopes issued to ITSELF; the operator sees all for the item.
+        const envWorkerId = context.principal.kind === "worker" ? context.principal.workerId : null;
+        const envelopes = new BoundedWorkEnvelopeStore(database).listForWorkItem(
+          context.workspaceId,
+          approvalRoute.workEnvelopeId,
+        );
         sendJson(
           response,
           200,
-          new BoundedWorkEnvelopeStore(database).listForWorkItem(
-            context.workspaceId,
-            approvalRoute.workEnvelopeId,
-          ),
+          envWorkerId === null
+            ? envelopes
+            : envelopes.filter((envelope) => envelope.worker_id === envWorkerId),
         );
         return;
       }
@@ -689,41 +873,64 @@ export function createServer(options: ServerOptions = {}) {
         }
         const body = await readJsonBody(request);
         const input = body.input;
-        sendJson(
-          response,
-          201,
-          new WorkService(database).createBoundedEnvelope({
-            id: typeof body.id === "string" ? body.id : null,
-            workspace_id: context.workspaceId,
-            work_item_id: approvalRoute.workEnvelopeId,
-            run_id: typeof body.run_id === "string" ? body.run_id : null,
-            worker_id: String(body.worker_id ?? ""),
-            issued_by: { actor_type: "operator", actor_id: context.actor, display_name: null },
-            allowed_capabilities: stringArray(body.allowed_capabilities),
-            input:
-              input && typeof input === "object" && !Array.isArray(input)
-                ? (input as Record<string, unknown>)
-                : {},
-            idempotency_key: typeof body.idempotency_key === "string" ? body.idempotency_key : null,
-          }),
-        );
+        try {
+          sendJson(
+            response,
+            201,
+            new WorkService(database).createBoundedEnvelope({
+              id: typeof body.id === "string" ? body.id : null,
+              workspace_id: context.workspaceId,
+              work_item_id: approvalRoute.workEnvelopeId,
+              run_id: typeof body.run_id === "string" ? body.run_id : null,
+              worker_id: String(body.worker_id ?? ""),
+              issued_by: { actor_type: "operator", actor_id: context.actor, display_name: null },
+              allowed_capabilities: stringArray(body.allowed_capabilities),
+              resource_grants:
+                body.resource_grants &&
+                typeof body.resource_grants === "object" &&
+                !Array.isArray(body.resource_grants)
+                  ? (body.resource_grants as ResourceGrants)
+                  : null,
+              input:
+                input && typeof input === "object" && !Array.isArray(input)
+                  ? (input as Record<string, unknown>)
+                  : {},
+              idempotency_key:
+                typeof body.idempotency_key === "string" ? body.idempotency_key : null,
+            }),
+          );
+        } catch (error) {
+          // Mirror the capability route: scrub every error so a secret-shaped resource grant (or any
+          // other failure) can never echo secret-adjacent material. A sensitive-material rejection is
+          // a client error (400); anything else is a server error (500) — still scrubbed.
+          const message = safeErrorMessage(error instanceof Error ? error.message : String(error));
+          sendJson(response, error instanceof SensitiveMaterialError ? 400 : 500, {
+            error: message,
+          });
+        }
         return;
       }
       if (request.method === "GET" && approvalRoute.individualMemoryAgentId) {
+        // Provenance invariant (#113): the individual-memory read goes through
+        // the trust-filtered retrieval, so untrusted memory never surfaces here
+        // without the reviewed path. Default = guidance-eligible only; the
+        // response stays a raw MemoryEntry[] for the console contract.
         sendJson(
           response,
           200,
-          new MemoryEntryStore(database)
-            .listForWorkspace(context.workspaceId)
-            .filter(
-              (entry) =>
-                entry.scope === "individual" &&
-                entry.owner_id === approvalRoute.individualMemoryAgentId,
-            ),
+          new MemoryRetrievalService(database)
+            .list(context.workspaceId, {
+              scope: "individual",
+              owner_id: approvalRoute.individualMemoryAgentId,
+            })
+            .map((result) => result.entry),
         );
         return;
       }
       if (request.method === "GET" && url.pathname === "/memory/collective") {
+        // Collective memory is inherently guidance-eligible: only ratified
+        // entries become collective (#113), so reading the store directly here
+        // surfaces nothing untrusted and needs no trust filter.
         sendJson(
           response,
           200,
@@ -1017,6 +1224,16 @@ export function createServer(options: ServerOptions = {}) {
       }
       sendJson(response, 404, { error: "not_found" });
     } catch (error) {
+      if (error instanceof SelfApprovalError) {
+        // Separation of duties: the approver is the same identity that requested the approval.
+        // That is a caller-side conflict, not a server fault — map it to 409 with a stable code
+        // and a safe message rather than echoing the internal exception text (#101).
+        sendJson(response, 409, {
+          error: "self_approval_forbidden",
+          message: "approver must differ from requester",
+        });
+        return;
+      }
       sendJson(response, 500, {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -1448,8 +1665,8 @@ function consoleHtml(): string {
     };
 
     var STATE_FAMILY = {
-      queued: "neutral", draft: "neutral", idle: "neutral", log_only: "neutral",
-      running: "info", in_progress: "info",
+      queued: "neutral", draft: "neutral", idle: "neutral", log_only: "neutral", withdrawn: "neutral",
+      running: "info", in_progress: "info", acknowledged: "info",
       proposed: "pending", pending: "pending", require_approval: "pending", approval_required: "pending",
       suspended_approval: "pending", provisional: "pending", review: "pending",
       approved: "success", allow: "success", done: "success", completed: "success",
@@ -2063,6 +2280,10 @@ function consoleHtml(): string {
             actions.appendChild(actionBtn("Apply to org", { onClick: postAction("/learning/proposals/" + p.id + "/apply", "improvement applied — reversible") }));
           } else if (p.status === "applied") {
             actions.appendChild(el("span", { class: "meta-line", style: "color:var(--state-success-fg)", text: "applied to org" }));
+          } else if (p.status === "acknowledged") {
+            actions.appendChild(el("span", { class: "meta-line", text: "acknowledged — recorded, not applied (no applier for this change type)" }));
+          } else if (p.status === "withdrawn") {
+            actions.appendChild(el("span", { class: "meta-line", text: "withdrawn" }));
           } else if (p.status === "rejected") {
             actions.appendChild(el("span", { class: "meta-line", text: "dismissed" }));
           }

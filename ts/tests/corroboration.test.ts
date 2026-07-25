@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  EventPayloadSchema,
   MemoryEntrySchema,
   type PromotionCandidate,
   PromotionCandidateSchema,
@@ -18,9 +19,11 @@ import {
   CorroborationStore,
   Database,
   EventStore,
+  PromotionCandidateStore,
   RunStore,
   WorkspaceStore,
 } from "../src/persistence/index.js";
+import { createApprovalServiceWithApplications } from "../src/runtime/approvals.js";
 
 const fixturePath = new URL("../../tests/fixtures/canonical_v0.json", import.meta.url);
 const REQUESTED_BY = "agent_55555555555555555555555555555555";
@@ -50,6 +53,29 @@ function seedRunningRun(): Run {
   });
   const runStore = new RunStore(database);
   runStore.create(queued);
+  // Replay the canonical fixture event (after its run exists) so the fixture
+  // memory entries' `provenance.source_event_id` resolves and they derive
+  // guidance-eligible under the provenance invariant (#113).
+  const event = fixture.event as {
+    id: string;
+    workspace_id: string;
+    run_id: string | null;
+    kind: string;
+    actor: string;
+    payload: Record<string, unknown>;
+    idempotency_key: string | null;
+    timestamp: string;
+  };
+  new EventStore(database).append({
+    workspace_id: event.workspace_id,
+    run_id: event.run_id,
+    kind: event.kind,
+    actor: event.actor,
+    payload: EventPayloadSchema.parse(event.payload),
+    idempotency_key: event.idempotency_key,
+    event_id: event.id,
+    timestamp: event.timestamp,
+  });
   return runStore.setStatus(queued.id, "running", {
     active_node: "run_started",
     updated_at: "2026-05-27T15:20:02Z",
@@ -135,6 +161,62 @@ describe("corroboration-based ratification", () => {
     expect(collective.confidence).toBeCloseTo(0.85, 5);
   });
 
+  it("requires independent corroboration to ratify through the production apply path", () => {
+    const run = seedRunningRun();
+    const service = new PromotionService(database, {
+      collective_memory_dir: join(tmpRoot, "collective_memory"),
+    });
+    const candidate = seedPromotionFixtures(service, run);
+    // Non-run promotion: approving routes through the apply_without_run handler
+    // (createApprovalServiceWithApplications) — the production path Fix B guards.
+    // (A run-bound promotion would resume the run instead and skip the handler.)
+    service.propose(candidate, {
+      requested_by: REQUESTED_BY,
+      approval_id: APPROVAL_ID,
+    });
+
+    // The production apply path wires min_corroboration: 1, so approving with zero
+    // corroborations rolls back and leaves the candidate unratified.
+    expect(() =>
+      createApprovalServiceWithApplications(database).approve(APPROVAL_ID, {
+        workspace_id: run.workspace_id,
+        actor: "operator",
+      }),
+    ).toThrow(/corroboration/);
+    expect(new PromotionCandidateStore(database).get(candidate.id)?.status).toBe("pending");
+
+    // One independent corroboration satisfies the production threshold.
+    service.recordCorroboration(candidate.id, {
+      source_memory_entry: CORROBORATOR_ID,
+      corroborated_by: CORROBORATOR_ACTOR,
+      run_id: run.id,
+      corroboration_id: CORROBORATION_ID,
+    });
+    const approved = createApprovalServiceWithApplications(database).approve(APPROVAL_ID, {
+      workspace_id: run.workspace_id,
+      actor: "operator",
+    });
+
+    expect(approved.status).toBe("approved");
+    expect(new PromotionCandidateStore(database).get(candidate.id)?.status).toBe("ratified");
+  });
+
+  it("rejects a promotion whose requested_by does not match the candidate's proposed_by", () => {
+    const run = seedRunningRun();
+    const service = new PromotionService(database, {
+      collective_memory_dir: join(tmpRoot, "collective_memory"),
+    });
+    const candidate = seedPromotionFixtures(service, run);
+    // The fixture candidate is proposed_by REQUESTED_BY. A divergent requester would let the
+    // proposer self-approve past the approver != requester guard, so propose() must reject it.
+    expect(() =>
+      service.propose(candidate, {
+        requested_by: "operator_someone_else",
+        approval_id: APPROVAL_ID,
+      }),
+    ).toThrow(/proposed_by/);
+  });
+
   it("rejects corroboration by the candidate's own source memory entry", () => {
     const run = seedRunningRun();
     const service = new PromotionService(database, {
@@ -206,8 +288,11 @@ describe("corroboration-based ratification", () => {
 
   it("rejects corroboration of a resolved promotion candidate", () => {
     const run = seedRunningRun();
+    // Ratifies with no corroboration to reach the resolved state, so it opts
+    // into the 0 corroboration floor explicitly (#101 default is 1).
     const service = new PromotionService(database, {
       collective_memory_dir: join(tmpRoot, "collective_memory"),
+      min_corroboration: 0,
     });
     const candidate = seedPromotionFixtures(service, run);
     service.propose(candidate, {

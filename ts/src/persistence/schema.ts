@@ -4,10 +4,18 @@ import { dumpJson } from "./serialization.js";
 
 /**
  * Current schema version. v7 is data-only: a one-time backfill of the M0 causal
- * envelope onto legacy (pre-instrumentation) work-lifecycle events (#109). The
- * table shapes are identical to v6.
+ * envelope onto legacy (pre-instrumentation) work-lifecycle events (#109). v8 is
+ * also data-only: a one-time truth-in-status relabel of marker-only "applied"
+ * org-change proposals to `acknowledged` (#105). Table shapes are
+ * identical to v6.
+ *
+ * The version bumps ONLY for a gated, one-time data migration. The
+ * `worker_credentials` table (#102) is created by idempotent `CREATE TABLE IF
+ * NOT EXISTS` DDL in the unconditional schema-creation path, so it carries no
+ * data migration and does not bump the version — adding a fresh table to the
+ * DDL is safe on every open regardless of the recorded version.
  */
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 // Defined once so the v7 migration (which must temporarily lift the update
 // guard) recreates exactly the trigger the schema declares.
@@ -443,6 +451,29 @@ CREATE TABLE IF NOT EXISTS autonomy_cases (
 CREATE INDEX IF NOT EXISTS idx_autonomy_cases_org
   ON autonomy_cases (workspace_id, org_id);
 
+CREATE TABLE IF NOT EXISTS narrowing_policies (
+  workspace_id TEXT PRIMARY KEY,
+  payload_json TEXT NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+);
+
+CREATE TABLE IF NOT EXISTS grant_suspensions (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  capability_name TEXT NOT NULL,
+  status TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+);
+
+-- At most one ACTIVE suspension per (workspace, actor, capability), enforced at the DB level.
+-- The partial index also serves the per-decision call-time lookup in the capability gateway,
+-- so reading "is this grant suspended?" stays a cheap indexed probe on the hot path.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_grant_suspensions_one_active
+  ON grant_suspensions (workspace_id, actor_id, capability_name)
+  WHERE status = 'active';
+
 CREATE TABLE IF NOT EXISTS active_run_locks (
   workspace_id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
@@ -476,6 +507,25 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS idx_notifications_workspace
 ON notifications(workspace_id, created_at, id);
 
+-- Per-worker authentication tokens (#102). Only the SHA-256 of the token is stored; the
+-- plaintext is shown once at mint time. A worker token authenticates a worker principal
+-- (worker_id + workspace) to the loopback API with strictly fewer rights than the operator token.
+CREATE TABLE IF NOT EXISTS worker_credentials (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  worker_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_worker_credentials_token_hash
+ON worker_credentials(token_hash);
+
+CREATE INDEX IF NOT EXISTS idx_worker_credentials_worker
+ON worker_credentials(workspace_id, worker_id);
+
 INSERT OR IGNORE INTO schema_version (version, applied_at)
 VALUES (${SCHEMA_VERSION}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 
@@ -492,6 +542,9 @@ export function initializeSchema(connection: SqliteDatabase): void {
     connection.exec(SCHEMA_SQL);
     if (previousVersion < 7) {
       backfillPreM0CausalEnvelope(connection);
+    }
+    if (previousVersion < 8) {
+      relabelMarkerOnlyAppliedProposals(connection);
     }
   })();
 }
@@ -782,4 +835,92 @@ function backfillPreM0CausalEnvelope(connection: SqliteDatabase): void {
     update.run(rewrite.payload_json, rewrite.id);
   }
   connection.exec(EVENTS_NO_UPDATE_TRIGGER);
+}
+
+// ---------------------------------------------------------------------------
+// v8 one-time relabel: truth-in-status for marker-only org changes (#105,
+// #105).
+// ---------------------------------------------------------------------------
+//
+// Before #105, approving an org change whose change_type had NO registered
+// applier flipped the proposal to `applied` and emitted an `org_change.applied`
+// event stamped `applied_as_marker_only: true` — while changing nothing. Those
+// rows are historically mislabeled: their honest terminal status is
+// `acknowledged` (which also makes them withdrawable, their defined revert
+// semantics). This migration relabels exactly them.
+//
+// Soundness rules:
+//   - A proposal is relabeled only when ALL of these hold: an
+//     `org_change.applied` event carries `payload.data.applied_as_marker_only
+//     === true` and names it, the proposal row still has status `applied`, and
+//     NO org_change_applications row exists for it. Real applies always create
+//     an application row inside the same transaction, so the last check makes
+//     it structurally impossible to relabel a real apply, even against a
+//     synthetic marker event.
+//   - The relabel moves `applied_at` to `acknowledged_at` (the moment the
+//     marker was recorded IS the acknowledgment moment) and clears
+//     `applied_at`, so no `acknowledged` row carries an "applied" timestamp it
+//     never earned.
+//   - The event log is NOT rewritten. It is the append-only (and possibly
+//     hash-chained) record of what the system actually did at the time; the
+//     marker events remain as the audit trail that motivated this relabel.
+//   - Idempotent: a second pass finds no `applied`-status rows matching a
+//     marker event and rewrites nothing.
+
+function relabelMarkerOnlyAppliedProposals(connection: SqliteDatabase): void {
+  const markerEvents = connection
+    .prepare("SELECT payload_json FROM events WHERE kind = 'org_change.applied'")
+    .all() as Array<{ payload_json: string }>;
+  const markerProposalIds = new Set<string>();
+  for (const row of markerEvents) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.payload_json);
+    } catch {
+      // Unreadable row: leave it for the read paths to fail loudly on.
+      continue;
+    }
+    const event = asJsonRecord(parsed);
+    const payload = event ? asJsonRecord(event.payload) : null;
+    const data = payload ? asJsonRecord(payload.data) : null;
+    if (data?.applied_as_marker_only !== true) {
+      continue;
+    }
+    const proposal = asJsonRecord(data.org_change_proposal);
+    if (typeof proposal?.id === "string" && proposal.id.length > 0) {
+      markerProposalIds.add(proposal.id);
+    }
+  }
+
+  const selectProposal = connection.prepare(
+    "SELECT payload_json FROM org_change_proposals WHERE id = ? AND status = 'applied'",
+  );
+  const selectApplication = connection.prepare(
+    "SELECT id FROM org_change_applications WHERE proposal_id = ?",
+  );
+  const updateProposal = connection.prepare(
+    "UPDATE org_change_proposals SET status = 'acknowledged', payload_json = ? WHERE id = ?",
+  );
+  for (const proposalId of [...markerProposalIds].sort()) {
+    const row = selectProposal.get(proposalId) as { payload_json: string } | undefined;
+    if (!row) {
+      continue; // not applied (already relabeled, or never reached applied)
+    }
+    if (selectApplication.get(proposalId)) {
+      continue; // a real application exists — this was actually applied; never relabel
+    }
+    let proposal: JsonRecord | null;
+    try {
+      proposal = asJsonRecord(JSON.parse(row.payload_json));
+    } catch {
+      continue;
+    }
+    if (proposal?.status !== "applied") {
+      continue;
+    }
+    proposal.status = "acknowledged";
+    proposal.acknowledged_at = proposal.applied_at ?? null;
+    proposal.applied_at = null;
+    updateProposal.run(dumpJson(proposal), proposalId);
+  }
 }

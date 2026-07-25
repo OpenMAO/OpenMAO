@@ -243,7 +243,7 @@ describe("institutional learning loop", () => {
     expect(new OrgChangeProposalStore(database).listForWorkspace(workspaceId)).toEqual([]);
   });
 
-  it("reviews proposals without silently mutating organization state", async () => {
+  it("acknowledges applier-less proposals without silently mutating organization state", async () => {
     const workspaceId = await seedWorkspace();
     const service = new OrgChangeService(database);
     const proposed = service.propose({
@@ -271,24 +271,29 @@ describe("institutional learning loop", () => {
     const approved = new OrgChangeProposalStore(database).get(proposed.proposal.id);
     expect(approved?.status).toBe("approved");
 
-    const applied = service.markApplied(proposed.proposal.id, {
+    // `policy` has no real applier, so the honest terminal status is `acknowledged` — never
+    // `applied` (truth-in-status, #105).
+    const acknowledged = service.markApplied(proposed.proposal.id, {
       workspace_id: workspaceId,
       actor: "human",
     });
-    const replayedApplied = service.markApplied(proposed.proposal.id, {
+    const replayed = service.markApplied(proposed.proposal.id, {
       workspace_id: workspaceId,
       actor: "another_human",
     });
-    expect(applied.status).toBe("applied");
-    expect(replayedApplied).toEqual(applied);
-    expect(applied.patch_json).toEqual({ recommendation: "Review policy." });
+    expect(acknowledged.status).toBe("acknowledged");
+    expect(acknowledged.acknowledged_at).not.toBeNull();
+    expect(acknowledged.applied_at).toBeNull();
+    expect(replayed).toEqual(acknowledged);
+    expect(acknowledged.patch_json).toEqual({ recommendation: "Review policy." });
     const eventKinds = new EventStore(database)
       .listForWorkspace(workspaceId)
       .map((event) => event.kind);
     expect(eventKinds).toEqual(
-      expect.arrayContaining(["org_change.approved", "org_change.applied"]),
+      expect.arrayContaining(["org_change.approved", "org_change.acknowledged"]),
     );
-    expect(eventKinds.filter((kind) => kind === "org_change.applied")).toHaveLength(1);
+    expect(eventKinds).not.toContain("org_change.applied");
+    expect(eventKinds.filter((kind) => kind === "org_change.acknowledged")).toHaveLength(1);
   });
 
   it("rejects proposals through approval state and projects open proposals into the world model", async () => {

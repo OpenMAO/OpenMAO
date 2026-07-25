@@ -164,6 +164,14 @@ export class CapabilityRegistryService {
       if (existingApproval) {
         const decision = this.requireRecordedCapabilityDecision(recordedCall);
         if (existingApproval.status === "approved") {
+          // Narrowing gate (#120): re-check suspension at resume/replay time. An approval that
+          // went pending BEFORE a suspension (or one a human explicitly approves AFTER one) must
+          // still be blocked here — narrowing is reversible only by a ratified lift, never by an
+          // unrelated approval — so an approved call never executes a suspended grant.
+          const resumeBlock = this.suspendedResumeBlock(recordedCall, decision);
+          if (resumeBlock) {
+            return resumeBlock;
+          }
           return {
             mode: "execute",
             executable: {
@@ -206,6 +214,13 @@ export class CapabilityRegistryService {
               result: this.recordBlockedResult(recordedCall, recordedDecision.reason),
             },
           };
+        }
+        // Narrowing gate (#120): a non-block decision was recorded earlier but no result exists
+        // yet (a crash/retry window). Re-check suspension before executing so a grant suspended
+        // after the decision was recorded blocks on replay instead of running the provider.
+        const replayBlock = this.suspendedResumeBlock(recordedCall, recordedDecision);
+        if (replayBlock) {
+          return replayBlock;
         }
         return {
           mode: "execute",
@@ -304,6 +319,34 @@ export class CapabilityRegistryService {
     return await this.invoke(call);
   }
 
+  // Narrowing gate (#120), resume/replay arm: the call-time suspension check, applied to a
+  // PREVIOUSLY recorded non-block decision just before it would execute the provider (an
+  // approved approval, or a recorded allow with no result yet). It re-queries the active
+  // suspension through the same shared `governance.suspendedGrantBlockReason` the fresh gate
+  // uses, so resume/replay is gated identically to a first-time decision. When suspended it
+  // records a blocked result carrying the suspension reason (which emits the same
+  // `capability.failed` audit a fresh block does) and returns a pending invocation; the
+  // already-recorded decision is returned unchanged (re-recording a different decision under
+  // the same idempotency key would conflict — the block lives in the result, mirroring the
+  // rejected-approval path). Returns null when no active suspension applies.
+  private suspendedResumeBlock(
+    call: CapabilityCall,
+    decision: PolicyDecision,
+  ): InvokeTransactionResult | null {
+    const suspensionReason = this.governance.suspendedGrantBlockReason(call);
+    if (!suspensionReason) {
+      return null;
+    }
+    return {
+      mode: "pending",
+      invocation: {
+        call,
+        decision,
+        result: this.recordBlockedResult(call, suspensionReason),
+      },
+    };
+  }
+
   private decideCall(call: CapabilityCall, capability: Capability): PolicyDecision {
     const taskBoundaryBlockReason = this.taskBoundaryBlockReason(call);
     if (taskBoundaryBlockReason) {
@@ -313,6 +356,10 @@ export class CapabilityRegistryService {
     const gatewayBlockReason = this.gatewayBlockReason(call, capability);
     if (gatewayBlockReason) {
       return this.policyBlock(call, gatewayBlockReason);
+    }
+    const resourceScopeBlockReason = this.resourceScopeBlockReason(call, capability);
+    if (resourceScopeBlockReason) {
+      return this.policyBlock(call, resourceScopeBlockReason);
     }
     if (call.external_actor?.actor_type === "worker") {
       return this.decideWorkerCapability(call, capability);
@@ -379,6 +426,13 @@ export class CapabilityRegistryService {
         `Worker identity lacks capability grant: ${call.capability_name}.`,
       );
     }
+    // Narrowing gate (#120): the worker path mirrors the role-grant path — right after
+    // the grant check, query the suspension store fresh through the shared governance
+    // read so a suspended worker grant blocks at call time too.
+    const suspensionReason = this.governance.suspendedGrantBlockReason(call);
+    if (suspensionReason) {
+      return this.policyBlock(call, suspensionReason);
+    }
 
     const decision = this.governance.capabilityApprovalDecision(call, capability);
 
@@ -410,6 +464,34 @@ export class CapabilityRegistryService {
     }
     if (!task.allowed_capabilities.includes(call.capability_name)) {
       return `Capability is not allowed by the task envelope: ${call.capability_name}.`;
+    }
+    return null;
+  }
+
+  // Enforce per-resource scope: a capability that declares `resource_fields` may act only on a
+  // resource the bounded envelope explicitly granted. Default-deny — a declared resource field with
+  // no grant, or a value outside the grant, is blocked before execution. Capabilities with no
+  // declared resource fields (e.g. the mock providers) are unaffected. The resource value is never
+  // echoed in the block reason.
+  private resourceScopeBlockReason(call: CapabilityCall, capability: Capability): string | null {
+    if (capability.resource_fields.length === 0) {
+      return null;
+    }
+    const task = this.tasks.get(call.task_id);
+    const grants = task?.resource_grants[call.capability_name] ?? {};
+    for (const field of capability.resource_fields) {
+      const allowed = grants[field];
+      if (!allowed || allowed.length === 0) {
+        return `Capability '${call.capability_name}' requires a bounded resource grant for '${field}'.`;
+      }
+      // Strict string match — never coerce. A non-string resource value (array, object with a
+      // crafted toString, number) is blocked, so e.g. `repo: ["OpenMAO"]` cannot stringify to a
+      // granted value while the provider reads the array differently. Resource grants are
+      // string-valued by design.
+      const value = call.input[field];
+      if (typeof value !== "string" || !allowed.includes(value)) {
+        return `Capability call resource '${field}' is outside the bounded envelope's grant.`;
+      }
     }
     return null;
   }
@@ -664,6 +746,14 @@ export class CapabilityRegistryService {
     assertNoSensitiveMaterial(call.input, "input");
     assertNoSensitiveMaterial(call.audit_payload, "audit_payload");
     assertNoSensitiveString(call.idempotency_key, "idempotency_key");
+    // Body-controlled actor strings are persisted and emitted in capability events, so they must
+    // pass the same sensitive-material perimeter as the rest of the call.
+    if (call.external_actor) {
+      assertNoSensitiveString(call.external_actor.actor_id, "external_actor.actor_id");
+      if (call.external_actor.display_name) {
+        assertNoSensitiveString(call.external_actor.display_name, "external_actor.display_name");
+      }
+    }
   }
 
   private approvalIdForCall(call: CapabilityCall): string {

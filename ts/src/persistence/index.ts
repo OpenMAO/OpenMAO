@@ -47,6 +47,11 @@ export {
   ModelResponseConflictError,
   ModelResponseStore,
 } from "./model-io.js";
+export {
+  GrantSuspensionConflictError,
+  GrantSuspensionStore,
+  NarrowingPolicyStore,
+} from "./narrowing.js";
 export { NotificationStore } from "./notifications.js";
 export {
   AgentConflictError,
@@ -94,5 +99,10 @@ export {
   WorkItemConflictError,
   WorkItemStore,
 } from "./work.js";
+export {
+  hashWorkerToken,
+  type WorkerCredential,
+  WorkerCredentialStore,
+} from "./worker-credentials.js";
 export { WorkspaceConflictError, WorkspaceStore } from "./workspaces.js";
 export { WorldModelSnapshotStore } from "./world-models.js";

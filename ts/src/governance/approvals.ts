@@ -30,6 +30,13 @@ type ApprovalApplicationHandler = (approval: ApprovalRequest) => void;
 
 export class ApprovalApplicationError extends Error {}
 
+/**
+ * Raised when the approving actor is the same identity that requested the approval. Consequential
+ * approvals (promotion, org change) require separation of duties: the approver must differ from the
+ * requester. This mirrors the proposer-cannot-ratify guard on autonomy widening.
+ */
+export class SelfApprovalError extends ApprovalApplicationError {}
+
 export class ApprovalService {
   readonly approvals: ApprovalStore;
   private readonly events: EventStore;
@@ -129,6 +136,7 @@ export class ApprovalService {
       if (alreadyApproved) {
         return current;
       }
+      this.assertNotSelfApproval(current, input.actor ?? null);
       if (current.on_approve === "apply_without_run" && !this.options.applyWithoutRun) {
         throw new ApprovalApplicationError(
           `approval requires an application handler: ${approvalId}`,
@@ -300,6 +308,26 @@ export class ApprovalService {
     if (run.status !== "running") {
       throw new ApprovalApplicationError(
         `run must be running before requesting approval: ${runId}`,
+      );
+    }
+  }
+
+  private assertNotSelfApproval(approval: ApprovalRequest, actor: string | null): void {
+    if (actor === null) {
+      // Unattributed: the operator token authorizes the call. Attribution becomes mandatory
+      // and verified once identity is bound at the HTTP boundary — see issue #92.
+      return;
+    }
+    const approver = actor.trim();
+    if (approver.length === 0) {
+      // A supplied-but-blank actor is malformed; it must not pass as "no actor".
+      throw new SelfApprovalError(
+        `approver identity must not be blank for approval ${approval.id}`,
+      );
+    }
+    if (approver === approval.requested_by.trim()) {
+      throw new SelfApprovalError(
+        `approver must differ from requester for approval ${approval.id}`,
       );
     }
   }

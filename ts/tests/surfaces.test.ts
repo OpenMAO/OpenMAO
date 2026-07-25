@@ -421,7 +421,9 @@ describe("TypeScript operator surfaces", () => {
         write: appliedOutput.write,
       }),
     ).toBe(0);
-    expect(JSON.parse(appliedOutput.lines[0] ?? "{}").status).toBe("applied");
+    // `workflow` has no real applier: the record is acknowledged, never claimed `applied`
+    // (truth-in-status, #105).
+    expect(JSON.parse(appliedOutput.lines[0] ?? "{}").status).toBe("acknowledged");
   });
 
   it("runs the reference external-worker demo through the CLI", async () => {
@@ -471,6 +473,10 @@ describe("TypeScript operator surfaces", () => {
       const missingActor = await fetch(`${baseUrl}/runs/demo`, {
         method: "POST",
         headers: { "x-openmao-operator-token": operatorToken },
+      });
+      const blankActor = await fetch(`${baseUrl}/runs/demo`, {
+        method: "POST",
+        headers: { "x-openmao-operator-token": operatorToken, "x-openmao-actor": "   " },
       });
       const demo = (await fetch(`${baseUrl}/runs/demo`, {
         method: "POST",
@@ -564,6 +570,7 @@ describe("TypeScript operator surfaces", () => {
 
       expect(rejected.status).toBe(403);
       expect(missingActor.status).toBe(400);
+      expect(blankActor.status).toBe(400);
       expect(demo.status).toBe("suspended_approval");
       expect(approvals.at(0)?.id).toBe(PROMOTION_APPROVAL_ID);
       expect(workspaces.at(0)?.id).toBe(WORKSPACE_ID);
@@ -592,6 +599,37 @@ describe("TypeScript operator surfaces", () => {
       expect(consoleHtml).toContain('data-view="traces"');
       expect(consoleHtml).toContain("/approvals/");
       expect(consoleHtml).not.toContain(operatorToken);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it("maps proposer self-approval to 409 over HTTP", async () => {
+    const server = createServer({ dbPath, operatorToken });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    try {
+      // Suspend the demo run at the promotion gate; the approval is requested_by COORDINATOR_AGENT_ID.
+      const demo = (await fetch(`${baseUrl}/runs/demo`, {
+        method: "POST",
+        headers: operatorHeaders,
+      }).then((response) => response.json())) as { status: string };
+      expect(demo.status).toBe("suspended_approval");
+
+      // The proposer approving their own request is a separation-of-duties conflict: 409, not 500,
+      // and the body must carry the stable code without leaking the internal exception message (#101).
+      const selfApproval = await fetch(`${baseUrl}/approvals/${PROMOTION_APPROVAL_ID}/approve`, {
+        method: "POST",
+        headers: { ...operatorHeaders, "x-openmao-actor": COORDINATOR_AGENT_ID },
+      });
+      const selfApprovalBody = (await selfApproval.json()) as { error: string; message?: string };
+
+      expect(selfApproval.status).toBe(409);
+      expect(selfApproval.status).not.toBe(500);
+      expect(selfApprovalBody.error).toBe("self_approval_forbidden");
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
@@ -815,7 +853,8 @@ describe("TypeScript operator surfaces", () => {
       expect(scan.proposals.at(0)?.proposal.status).toBe("proposed");
       expect(proposal?.status).toBe("proposed");
       expect(approved.status).toBe("approved");
-      expect(applied.status).toBe("applied");
+      // `workflow` has no real applier: acknowledged, never `applied` (#105).
+      expect(applied.status).toBe("acknowledged");
       expect(world.learning_signals).toContain("repeated_blocker");
     } finally {
       await new Promise<void>((resolve, reject) => {

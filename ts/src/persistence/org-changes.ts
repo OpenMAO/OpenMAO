@@ -14,7 +14,9 @@ export type OrgChangeStatus =
   | "proposed"
   | "approved"
   | "rejected"
-  | "applied";
+  | "applied"
+  | "acknowledged"
+  | "withdrawn";
 type PayloadRow = { payload_json: string };
 
 export class OrgChangeProposalError extends Error {}
@@ -24,8 +26,14 @@ export class OrgChangeProposalStore {
 
   save(proposal: OrgChangeProposal): OrgChangeProposal {
     const parsed = OrgChangeProposalSchema.parse(proposal);
-    if (parsed.status === "applied") {
-      throw new OrgChangeProposalError("new org change proposals must not be saved as applied");
+    if (
+      parsed.status === "applied" ||
+      parsed.status === "acknowledged" ||
+      parsed.status === "withdrawn"
+    ) {
+      throw new OrgChangeProposalError(
+        `new org change proposals must not be saved as ${parsed.status}`,
+      );
     }
 
     return this.database.transaction(() => {
@@ -65,6 +73,18 @@ export class OrgChangeProposalStore {
     return rows.map((row) => OrgChangeProposalSchema.parse(JSON.parse(row.payload_json)));
   }
 
+  /**
+   * Advance a proposal along the truth-in-status lifecycle (#105):
+   *
+   *   draft | pending | proposed → approved | rejected
+   *   approved                   → applied (real applier) | acknowledged (no applier)
+   *   acknowledged               → withdrawn (the revert semantics of an acknowledged record)
+   *   rejected | applied | withdrawn are terminal.
+   *
+   * Setting the status a row already holds is an idempotent no-op; every other transition is
+   * refused. Each outcome stamps its own honest timestamp — an `acknowledged` row never carries
+   * an `applied_at` it did not earn.
+   */
   setStatus(
     proposalId: string,
     status: Exclude<OrgChangeStatus, "draft" | "pending" | "proposed">,
@@ -75,43 +95,34 @@ export class OrgChangeProposalStore {
       if (!current) {
         throw new Error(`org change proposal not found: ${proposalId}`);
       }
-      if (status === "applied" && current.status !== "approved" && current.status !== "applied") {
-        throw new OrgChangeProposalError(
-          `org change proposal must be approved before applied: ${proposalId}`,
-        );
+      if (current.status === status) {
+        return current;
       }
-      if (
-        current.status === "approved" ||
-        current.status === "rejected" ||
-        current.status === "applied"
-      ) {
-        if (current.status === status) {
-          return current;
-        }
-        if (current.status === "approved" && status === "applied") {
-          const applied = OrgChangeProposalSchema.parse({
-            ...current,
-            status,
-            applied_at: options.resolved_at ?? utcNow(),
-          });
-          this.database.connection
-            .prepare("UPDATE org_change_proposals SET status = ?, payload_json = ? WHERE id = ?")
-            .run(applied.status, dumpJson(applied), applied.id);
-          return applied;
-        }
+      const at = options.resolved_at ?? utcNow();
+      const open =
+        current.status === "draft" || current.status === "pending" || current.status === "proposed";
+      let updated: OrgChangeProposal;
+      if ((status === "approved" || status === "rejected") && open) {
+        updated = OrgChangeProposalSchema.parse({ ...current, status, resolved_at: at });
+      } else if (status === "applied" && current.status === "approved") {
+        updated = OrgChangeProposalSchema.parse({ ...current, status, applied_at: at });
+      } else if (status === "acknowledged" && current.status === "approved") {
+        updated = OrgChangeProposalSchema.parse({ ...current, status, acknowledged_at: at });
+      } else if (status === "withdrawn" && current.status === "acknowledged") {
+        updated = OrgChangeProposalSchema.parse({ ...current, status, withdrawn_at: at });
+      } else if ((status === "applied" || status === "acknowledged") && open) {
+        throw new OrgChangeProposalError(
+          `org change proposal must be approved before ${status}: ${proposalId}`,
+        );
+      } else if (status === "withdrawn" && (open || current.status === "approved")) {
+        throw new OrgChangeProposalError(
+          `only acknowledged org change proposals can be withdrawn: ${proposalId}`,
+        );
+      } else {
         throw new OrgChangeProposalError(
           `org change proposal already resolved as ${current.status}: ${proposalId}`,
         );
       }
-      const updated = OrgChangeProposalSchema.parse({
-        ...current,
-        status,
-        resolved_at:
-          status === "approved" || status === "rejected"
-            ? (options.resolved_at ?? utcNow())
-            : current.resolved_at,
-        applied_at: status === "applied" ? (options.resolved_at ?? utcNow()) : current.applied_at,
-      });
       this.database.connection
         .prepare("UPDATE org_change_proposals SET status = ?, payload_json = ? WHERE id = ?")
         .run(updated.status, dumpJson(updated), updated.id);

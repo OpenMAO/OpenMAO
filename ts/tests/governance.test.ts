@@ -27,7 +27,7 @@ import {
   WorkItemSchema,
   WorkspaceSchema,
 } from "../src/contracts/index.js";
-import { ApprovalService, GovernanceService } from "../src/governance/index.js";
+import { ApprovalService, GovernanceService, SelfApprovalError } from "../src/governance/index.js";
 import { OrgRegistry } from "../src/org/index.js";
 import {
   CapabilityCallStore,
@@ -401,8 +401,76 @@ describe("TypeScript governance and capabilities", () => {
     });
 
     expect(() =>
-      new ApprovalService(database).approve(approval.id, { workspace_id: workspaceId }),
+      new ApprovalService(database).approve(approval.id, {
+        workspace_id: workspaceId,
+        actor: "test_operator",
+      }),
     ).toThrow("application handler");
+  });
+
+  it("refuses an approver identical to the requester and lets a distinct approver proceed", async () => {
+    const workspaceId = await seedWorkspace();
+    const applied: string[] = [];
+    const approvalService = new ApprovalService(database, {
+      applyWithoutRun: (approval) => applied.push(approval.id),
+    });
+    const approval = approvalService.request({
+      workspace_id: workspaceId,
+      action: "memory.promote",
+      requested_by: "operator_alice",
+      payload: ApprovalPayloadSchema.parse({
+        target_type: "promotion_candidate",
+        target_id: "promo_cccccccccccccccccccccccccccccccc",
+        reason: "Self-approval must be refused (separation of duties).",
+      }),
+      on_approve: "apply_without_run",
+      on_reject: "no_op",
+    });
+
+    // The requester cannot approve their own request; the apply handler never fires.
+    expect(() =>
+      approvalService.approve(approval.id, { workspace_id: workspaceId, actor: "operator_alice" }),
+    ).toThrow(SelfApprovalError);
+    expect(applied).toEqual([]);
+
+    // A distinct approver resolves and applies the still-pending approval.
+    const approved = approvalService.approve(approval.id, {
+      workspace_id: workspaceId,
+      actor: "operator_bob",
+    });
+
+    expect(approved.status).toBe("approved");
+    expect(applied).toEqual([approval.id]);
+  });
+
+  it("rejects a supplied-but-blank approver identity", async () => {
+    const workspaceId = await seedWorkspace();
+    const applied: string[] = [];
+    const approvalService = new ApprovalService(database, {
+      applyWithoutRun: (approval) => applied.push(approval.id),
+    });
+    const approval = approvalService.request({
+      workspace_id: workspaceId,
+      action: "memory.promote",
+      requested_by: "operator_alice",
+      payload: ApprovalPayloadSchema.parse({
+        target_type: "promotion_candidate",
+        target_id: "promo_cccccccccccccccccccccccccccccccc",
+        reason: "A blank approver must not pass as unattributed.",
+      }),
+      on_approve: "apply_without_run",
+      on_reject: "no_op",
+    });
+
+    // A whitespace-only actor must not slip past the guard by trimming to empty.
+    expect(() =>
+      approvalService.approve(approval.id, { workspace_id: workspaceId, actor: "   " }),
+    ).toThrow(SelfApprovalError);
+    expect(applied).toEqual([]);
+
+    // A distinct, attributable approver resolves and applies it.
+    approvalService.approve(approval.id, { workspace_id: workspaceId, actor: "operator_bob" });
+    expect(applied).toEqual([approval.id]);
   });
 
   it("executes an enabled granted capability once", async () => {
