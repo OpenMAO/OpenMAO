@@ -916,7 +916,9 @@ describe("TypeScript operator surfaces", () => {
       expect(world.external_workers).toContain(REFERENCE_WORKER_ID);
       expect(consoleHtml).toContain("/workers/reference-demo");
       expect(consoleHtml).toContain('data-view="capabilityCalls"');
-      expect(consoleHtml).toContain('data-view="capabilityResults"');
+      // Capability results are folded into the Actions-requested (capabilityCalls) view
+      // rather than a top-level peer, per the Tier-1 drill-down IA.
+      expect(consoleHtml).toContain("/capability-results");
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
