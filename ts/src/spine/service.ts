@@ -421,6 +421,9 @@ export class SpineService {
     this.checkpointNode(run, "approval_resolved", [`${resolvedApprovalId}:approved`]);
     const collective = new PromotionService(this.database, {
       collective_memory_dir: this.collectiveMemoryDir(),
+      // The deterministic demo ratifies without corroboration on purpose; production promotion
+      // (createApprovalServiceWithApplications) uses the default floor of 1.
+      min_corroboration: 0,
     }).ratifyAndWriteCollective(PROMOTION_CANDIDATE_ID, {
       workspace_id: WORKSPACE_ID,
       approval_id: resolvedApprovalId,

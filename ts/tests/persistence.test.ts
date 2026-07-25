@@ -179,6 +179,7 @@ describe("TypeScript persistence", () => {
         "traces",
         "node_effects",
         "active_run_locks",
+        "worker_credentials",
       ]),
     );
     expect(userVersion).toBe(8);

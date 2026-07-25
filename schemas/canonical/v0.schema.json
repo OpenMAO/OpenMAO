@@ -1194,6 +1194,19 @@
             "type": "string"
           },
           "default": []
+        },
+        "resource_grants": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "default": {}
         }
       },
       "required": [
@@ -1302,6 +1315,19 @@
             "type": "string"
           },
           "default": []
+        },
+        "resource_grants": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "default": {}
         },
         "input": {
           "type": "object",
@@ -1618,6 +1644,13 @@
             "disabled"
           ],
           "default": "approval_required"
+        },
+        "resource_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
         }
       },
       "required": [

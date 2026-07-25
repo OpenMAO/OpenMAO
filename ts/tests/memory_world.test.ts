@@ -118,6 +118,7 @@ describe("TypeScript memory promotion and world model", () => {
     const fixture = await loadFixture();
     const service = new PromotionService(database, {
       collective_memory_dir: join(tmpRoot, "collective_memory"),
+      min_corroboration: 0,
     });
     const individual = service.writeIndividual(MemoryEntrySchema.parse(fixture.memory_entry));
     const candidate = PromotionCandidateSchema.parse(fixture.promotion_candidate);

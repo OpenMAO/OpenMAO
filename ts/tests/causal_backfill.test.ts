@@ -322,8 +322,11 @@ async function seedPreM0Fixture(): Promise<void> {
 
 /**
  * Re-stamp the file as schema v6. v7 changed no table shapes (it is a data-only
- * backfill), so a v7-initialized file with the v6 stamp is byte-equivalent to a
- * real pre-M0 database for the migration's purposes.
+ * backfill); the worker_credentials table (#102) is added by idempotent DDL that
+ * runs on every open without bumping the version, so it is present on both sides
+ * of the migration and irrelevant to the backfill. A freshly initialized file
+ * with the v6 stamp is therefore byte-equivalent to a real pre-M0 database for
+ * the migration's purposes.
  */
 function stampAsV6(): void {
   database.connection.prepare("DELETE FROM schema_version WHERE version = 7").run();
@@ -614,16 +617,19 @@ describe("v7 one-time causal backfill for pre-M0 events (#109)", () => {
   it("changes no structural DDL, which is what makes the synthesized v6 fixture schema-accurate", () => {
     // The fixture is built by initializing the CURRENT schema and re-stamping
     // user_version=6 (stampAsV6), not by replaying a checked-in v6 DDL dump. That
-    // synthesis is faithful only if v6 and v7 table structure are identical —
-    // which is the migration's design: v7 is data-only (causal backfill +
-    // drop/recreate of the byte-identical events_no_update trigger + version
-    // bump), adding no table, column, index, or trigger DDL. Prove it: a freshly
-    // initialized database and the fixture database that ran the full stamp-v6 →
-    // reopen → migrate cycle (with real rewrites, so the trigger drop/recreate
-    // path executed) must agree on every sqlite_master entry; only data and
-    // user_version may differ. If this ever fails, the migration changed
-    // structure — a violation of the data-only contract that also invalidates the
-    // v6 fixture synthesis — and the migration, not this test, is wrong.
+    // synthesis is faithful only if the structure the backfill reads is identical
+    // across versions — which is the migration's design: v7 is data-only (causal
+    // backfill + drop/recreate of the byte-identical events_no_update trigger +
+    // version bump), adding no table, column, index, or trigger DDL. The
+    // worker_credentials table (#102) is created by idempotent DDL on every open
+    // without a version bump, so it is present on BOTH sides of the comparison and
+    // does not affect this check. Prove it: a freshly initialized database and
+    // the fixture database that ran the full stamp-v6 → reopen → migrate cycle
+    // (with real rewrites, so the trigger drop/recreate path executed) must agree
+    // on every sqlite_master entry; only data and user_version may differ. If
+    // this ever fails, the migration changed structure — a violation of the
+    // data-only contract that also invalidates the v6 fixture synthesis — and the
+    // migration, not this test, is wrong.
     const structuralDdl = (db: Database): Array<Record<string, unknown>> =>
       db.connection
         .prepare(

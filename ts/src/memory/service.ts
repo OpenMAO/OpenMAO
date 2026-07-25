@@ -73,7 +73,9 @@ export class PromotionService {
     this.effects = new NodeEffectStore(database);
     this.approvals = new ApprovalStore(database);
     this.corroborations = new CorroborationStore(database);
-    this.minCorroboration = Math.max(0, Math.floor(options.min_corroboration ?? 0));
+    // Independent corroboration is required by default. Callers that intentionally ratify
+    // without it (the deterministic demo, focused unit tests) must opt in to 0 explicitly.
+    this.minCorroboration = Math.max(0, Math.floor(options.min_corroboration ?? 1));
     this.collectiveMemoryDir =
       options.collective_memory_dir ??
       (database.path === ":memory:"
@@ -110,6 +112,14 @@ export class PromotionService {
     return this.database.transaction(() => {
       if (parsed.status !== "pending") {
         throw new PromotionServiceError("only pending promotion candidates can be proposed");
+      }
+      // The proposer requests promotion of their own candidate: the approval's requested_by
+      // must be the candidate's proposed_by, so the downstream approver != requester guard is
+      // genuinely an approver != proposer check (not a check against an unrelated requester).
+      if (input.requested_by !== parsed.proposed_by) {
+        throw new PromotionServiceError(
+          "promotion requested_by must match the candidate's proposed_by",
+        );
       }
       const source = this.entries.get(parsed.source_memory_entry);
       if (!source) {
