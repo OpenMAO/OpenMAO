@@ -78,6 +78,39 @@ Properties:
 - All access flows through governed capability providers; no direct agent-to-infrastructure connections.
 - Cost, audit, and approval semantics are the same as the other modes.
 
+## Enforced-mode topology: what physically makes the gateway non-bypassable
+
+"Non-bypassable" is a deployment property, not a code property
+([#111](https://github.com/OpenMAO/OpenMAO/issues/111)). The capability gateway is only as
+enforced as the topology around it. Three physical properties, in increasing order of what they
+cost to provide:
+
+1. **Secret isolation.** The credential broker holds the real secret and resolves it inside
+   provider code at execution time; workers hold opaque `cred_*` handles and have nothing to
+   authenticate with on their own. Provided by OpenMAO itself in every mode.
+2. **Egress control.** The worker process cannot reach provider endpoints except through the
+   gateway — an egress allow-list, a network namespace, or an equivalent boundary that makes the
+   gateway the only outward door. **Not provided by OpenMAO**; it belongs to the runtime the
+   worker executes in.
+3. **Process separation.** Worker code runs in a process with no ambient credentials and no
+   direct write access to the substrate database, so it cannot forge or suppress gateway records.
+   Partially provided (per-worker scoped tokens close the API surface); full confinement is the
+   runtime-sandbox layer (see [LIMITATIONS.md](./LIMITATIONS.md) §11).
+
+**Mode 1 provides secret isolation only.** A worker process in local mode can reach the internet
+directly; nothing but the deployment contract stops it from taking a side effect outside the
+gateway. Enforced mode in Mode 1 is therefore a promise the operator keeps, not a guarantee the
+runtime makes: "non-bypassable" means bypassable only by violating the deployment contract
+(handing a worker raw credentials, or running it with open egress and expecting otherwise).
+
+**A stronger claim requires a provided runtime.** Egress control and process separation arrive
+with the sandboxed/provisioned runtimes of Modes 2 and 3, or with an operator-configured
+equivalent (container with an egress allow-list, network namespace, secrets kept out of the
+worker's environment). The perimeter-classes work at
+[#69](https://github.com/OpenMAO/OpenMAO/issues/69) tracks making that boundary a first-class,
+checkable part of deployment; the omission-detection work at #111 makes violations of it
+*detectable* from the record even where they cannot be *prevented* by topology.
+
 ## What stays constant across all modes
 
 These are properties of the OpenMAO organizational substrate, not of any deployment mode:
