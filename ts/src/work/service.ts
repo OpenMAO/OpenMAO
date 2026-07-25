@@ -6,6 +6,7 @@ import {
   EventPayloadSchema,
   type ExternalActorRef,
   newId,
+  type ResourceGrants,
   type Run,
   RunSchema,
   type TaskEnvelope,
@@ -113,6 +114,7 @@ type CreateBoundedEnvelopeInput = {
   context_refs?: string[];
   allowed_capabilities?: string[];
   approval_gates?: string[];
+  resource_grants?: ResourceGrants | null;
   input?: Record<string, unknown>;
   expires_at?: string | null;
   idempotency_key?: string | null;
@@ -420,6 +422,11 @@ export class WorkService {
         }
       }
       assertNoSensitiveMaterial(input.input ?? {}, "bounded_work_envelope.input");
+      const resourceGrants = input.resource_grants ?? {};
+      // Resource-grant values are operator-supplied free strings that ride the envelope into the
+      // append-only event log; screen them like every other free string so a secret-shaped grant
+      // value (or capability/field key) can never be persisted. Walks keys and every leaf value.
+      assertNoSensitiveMaterial(resourceGrants, "bounded_work_envelope.resource_grants");
       const envelopeId = input.id ?? newId("envelope");
       const taskEnvelopeId = input.run_id
         ? (input.task_envelope_id ?? this.taskEnvelopeIdForEnvelope(envelopeId))
@@ -434,6 +441,7 @@ export class WorkService {
             objective: input.objective ?? workItem.objective,
             allowed_capabilities: allowedCapabilities,
             approval_gates: input.approval_gates ?? workItem.approval_gates,
+            resource_grants: resourceGrants,
             actor: actorString(input.issued_by),
           })
         : null;
@@ -450,6 +458,7 @@ export class WorkService {
         context_refs: input.context_refs ?? [],
         allowed_capabilities: allowedCapabilities,
         approval_gates: input.approval_gates ?? workItem.approval_gates,
+        resource_grants: resourceGrants,
         input: input.input ?? {},
         created_at: utcNow(),
         expires_at: input.expires_at ?? null,
@@ -561,6 +570,7 @@ export class WorkService {
     objective: string;
     allowed_capabilities: string[];
     approval_gates: string[];
+    resource_grants: ResourceGrants;
     actor: string;
   }): TaskEnvelope {
     const task = this.tasks.save(
@@ -574,6 +584,7 @@ export class WorkService {
         objective: input.objective,
         allowed_capabilities: input.allowed_capabilities,
         approval_gates: input.approval_gates,
+        resource_grants: input.resource_grants,
       }),
     );
     this.events.append({

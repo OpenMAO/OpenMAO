@@ -1,5 +1,6 @@
 export {
   approveReferenceWorkerDemo,
+  prepareReferenceWorkerDemo,
   REFERENCE_CAPABILITY_APPROVAL_ID,
   REFERENCE_CAPABILITY_CALL_ID,
   REFERENCE_CAPABILITY_NAME,

@@ -241,6 +241,13 @@ export const RunSchema = z
   })
   .strict();
 
+// Per-capability resource scope for a bounded envelope: capability_name -> resource field -> the
+// exact set of allowed values. A capability that declares `resource_fields` may only act on a
+// resource whose value for each field is listed here, so granting `github.create_issue_comment`
+// no longer means "any repo" — it means exactly the repos the envelope pinned.
+export const ResourceGrantsSchema = z.record(z.string(), z.record(z.string(), z.array(z.string())));
+export type ResourceGrants = z.infer<typeof ResourceGrantsSchema>;
+
 export const TaskEnvelopeSchema = z
   .object({
     id: CanonicalIdSchema,
@@ -253,6 +260,7 @@ export const TaskEnvelopeSchema = z
     context_refs: z.array(z.string()).default([]),
     allowed_capabilities: z.array(z.string()).default([]),
     approval_gates: z.array(z.string()).default([]),
+    resource_grants: ResourceGrantsSchema.default({}),
   })
   .strict();
 
@@ -269,6 +277,7 @@ export const BoundedWorkEnvelopeSchema = z
     context_refs: z.array(z.string()).default([]),
     allowed_capabilities: z.array(z.string()).default([]),
     approval_gates: z.array(z.string()).default([]),
+    resource_grants: ResourceGrantsSchema.default({}),
     input: recordSchema.default({}),
     created_at: UtcTimestampSchema,
     expires_at: UtcTimestampSchema.nullable().default(null),
@@ -339,6 +348,10 @@ export const CapabilitySchema = z
     default_permission: z
       .enum(["enabled", "approval_required", "disabled"])
       .default("approval_required"),
+    // Input fields that name the RESOURCE a side effect acts on (e.g. ["owner", "repo"] for a
+    // GitHub comment). When non-empty, every call must carry an envelope resource grant for each
+    // field — a granted capability can no longer act on an arbitrary resource (default-deny).
+    resource_fields: z.array(z.string()).default([]),
   })
   .strict();
 

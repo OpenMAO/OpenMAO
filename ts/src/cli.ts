@@ -29,6 +29,7 @@ import {
   materializeRejectedCapabilityApproval,
 } from "./runtime/capabilities.js";
 import { openLocalDatabase } from "./runtime/local.js";
+import { WorkerAuthService } from "./security/worker-auth.js";
 import { PROMOTION_APPROVAL_ID, RUN_ID, SpineService, WORKSPACE_ID } from "./spine/index.js";
 import { WorkService } from "./work/index.js";
 import {
@@ -232,6 +233,23 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           actor: "cli_operator",
         }),
       );
+      return 0;
+    }
+    if (command === "workers" && subcommand === "mint-token") {
+      const workerId = positions[2] ?? optionValue(args, "--worker");
+      if (!workerId) {
+        throw new Error("workers mint-token requires a worker id");
+      }
+      const minted = new WorkerAuthService(database).mint({
+        workspace_id: selectedWorkspace,
+        worker_id: workerId,
+      });
+      printJson(write, {
+        credential_id: minted.credential_id,
+        worker_id: minted.worker_id,
+        token: minted.token,
+        note: "Store this token securely — it is shown only once. Hand it to the worker process.",
+      });
       return 0;
     }
     if (command === "work" && subcommand === "list") {
