@@ -6,7 +6,11 @@ import { ApprovalService, NarrowingService } from "./governance/index.js";
 import { ConsoleTransport, HeartbeatService } from "./heartbeat/index.js";
 import { IngestionService } from "./ingestion/index.js";
 import { LearningService } from "./learning/index.js";
-import { MemoryRetrievalService, PromotionService } from "./memory/index.js";
+import {
+  MemoryRetrievalService,
+  type MemoryReviewOptions,
+  PromotionService,
+} from "./memory/index.js";
 import { OrgChangeService, OrgControlService } from "./org/index.js";
 import {
   BoundedWorkEnvelopeStore,
@@ -30,6 +34,7 @@ import {
   materializeRejectedCapabilityApproval,
 } from "./runtime/capabilities.js";
 import { openLocalDatabase } from "./runtime/local.js";
+import { WorkerAuthService } from "./security/worker-auth.js";
 import { PROMOTION_APPROVAL_ID, RUN_ID, SpineService, WORKSPACE_ID } from "./spine/index.js";
 import { WorkService } from "./work/index.js";
 import {
@@ -124,6 +129,22 @@ function requireOption(args: string[], name: string): string {
   return value;
 }
 
+/**
+ * Review path of the provenance invariant (#113): untrusted memory is only
+ * shown when explicitly requested, and the requesting actor must be named so
+ * the review can be put on the record.
+ */
+function memoryReviewOption(args: string[]): MemoryReviewOptions | undefined {
+  if (!args.includes("--include-untrusted")) {
+    return undefined;
+  }
+  const reviewedBy = optionValue(args, "--by");
+  if (!reviewedBy) {
+    throw new Error("--include-untrusted requires --by <actor>: reviews go on the record");
+  }
+  return { include_untrusted: true, reviewed_by: reviewedBy };
+}
+
 function commaList(value: string | null): string[] {
   return value
     ? value
@@ -169,7 +190,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
 
     if (command === "help" || command === "--help" || command === "-h") {
       write(
-        "openmao demo | demo-approve | demo-deny | init | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | autonomy narrow ratify --by <actor> --rejections <n> --violations <m> --window <seconds> --cooldown <seconds> | autonomy narrow scan|list | autonomy narrow lift <id> --by <actor> --note <text> | memory search|list|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | verify-chain | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | console",
+        "openmao demo | demo-approve | demo-deny | init | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert|withdraw | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | autonomy narrow ratify --by <actor> --rejections <n> --violations <m> --window <seconds> --cooldown <seconds> | autonomy narrow scan|list | autonomy narrow lift <id> --by <actor> --note <text> | memory search|list [--include-untrusted --by <actor>]|attest <entry_id> --by <operator>|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | verify-chain | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | console",
       );
       return 0;
     }
@@ -237,6 +258,23 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           actor: "cli_operator",
         }),
       );
+      return 0;
+    }
+    if (command === "workers" && subcommand === "mint-token") {
+      const workerId = positions[2] ?? optionValue(args, "--worker");
+      if (!workerId) {
+        throw new Error("workers mint-token requires a worker id");
+      }
+      const minted = new WorkerAuthService(database).mint({
+        workspace_id: selectedWorkspace,
+        worker_id: workerId,
+      });
+      printJson(write, {
+        credential_id: minted.credential_id,
+        worker_id: minted.worker_id,
+        token: minted.token,
+        note: "Store this token securely — it is shown only once. Hand it to the worker process.",
+      });
       return 0;
     }
     if (command === "work" && subcommand === "list") {
@@ -466,11 +504,36 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         proposalId,
       );
       if (!application) {
+        // Truth-in-status (#105): an `acknowledged` record was never applied, so there is
+        // nothing to reverse — its defined revert semantics are withdrawal, a separate explicit
+        // operation.
+        const proposal = new OrgChangeProposalStore(database).get(proposalId);
+        if (proposal?.workspace_id === selectedWorkspace && proposal.status === "acknowledged") {
+          throw new Error(
+            `org change ${proposalId} is acknowledged (recorded only — nothing was applied), so there is nothing to revert; use \`learning withdraw ${proposalId}\` to withdraw it`,
+          );
+        }
         throw new Error(`no applied change found for proposal: ${proposalId}`);
       }
       printJson(
         write,
         new OrgChangeService(database).revertApplication(application.id, {
+          workspace_id: selectedWorkspace,
+          actor: "cli_operator",
+        }),
+      );
+      return 0;
+    }
+    if (command === "learning" && subcommand === "withdraw") {
+      // Withdraw an acknowledged (applier-less) org change record — valid only from
+      // `acknowledged`, idempotent, and audited as `org_change.withdrawn` (#105).
+      const proposalId = positions[2];
+      if (!proposalId) {
+        throw new Error("proposal id is required");
+      }
+      printJson(
+        write,
+        new OrgChangeService(database).withdraw(proposalId, {
           workspace_id: selectedWorkspace,
           actor: "cli_operator",
         }),
@@ -486,18 +549,46 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       const limit = optionValue(args, "--limit");
       printJson(
         write,
-        new MemoryRetrievalService(database).search(selectedWorkspace, query, {
-          ...(scope ? { scope: scope as never } : {}),
-          ...(kind ? { kind: kind as never } : {}),
-          ...(minConfidence !== null ? { min_confidence: Number(minConfidence) } : {}),
-          ...(owner ? { owner_id: owner } : {}),
-          ...(limit !== null ? { limit: Number(limit) } : {}),
-        }),
+        new MemoryRetrievalService(database).search(
+          selectedWorkspace,
+          query,
+          {
+            ...(scope ? { scope: scope as never } : {}),
+            ...(kind ? { kind: kind as never } : {}),
+            ...(minConfidence !== null ? { min_confidence: Number(minConfidence) } : {}),
+            ...(owner ? { owner_id: owner } : {}),
+            ...(limit !== null ? { limit: Number(limit) } : {}),
+          },
+          memoryReviewOption(args),
+        ),
       );
       return 0;
     }
     if (command === "memory" && (subcommand === "list" || subcommand === "")) {
-      printJson(write, new MemoryEntryStore(database).listForWorkspace(selectedWorkspace));
+      printJson(
+        write,
+        new MemoryRetrievalService(database).list(selectedWorkspace, {}, memoryReviewOption(args)),
+      );
+      return 0;
+    }
+    if (command === "memory" && subcommand === "attest") {
+      // Operator path of the provenance invariant (#113): an operator puts an
+      // attestation on the record so the entry derives guidance-eligible. The
+      // bare `attested_by` on the entry confers nothing without this event.
+      const entryId = positions[2];
+      if (!entryId) {
+        throw new Error("usage: memory attest <entry_id> --by <operator>");
+      }
+      const attestEntry = new MemoryEntryStore(database).get(entryId);
+      if (!attestEntry || attestEntry.workspace_id !== selectedWorkspace) {
+        throw new Error(`memory entry not found in workspace: ${entryId}`);
+      }
+      printJson(
+        write,
+        new PromotionService(database).attestMemory(entryId, {
+          attested_by: requireOption(args, "--by"),
+        }),
+      );
       return 0;
     }
     if (command === "memory" && subcommand === "corroborate") {
@@ -638,6 +729,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           write,
           createApprovalServiceWithApplications(database).approve(approvalId, {
             workspace_id: selectedWorkspace,
+            actor: "cli_operator",
           }),
         );
       }

@@ -21,6 +21,7 @@ import {
   OrgChangeBlastRadiusError,
   OrgChangeRevertConflictError,
   OrgChangeService,
+  OrgChangeServiceError,
   OrgControlService,
   ProposerApplierSeparationError,
 } from "../src/org/index.js";
@@ -379,6 +380,119 @@ describe("M1 reversible apply — markApplied integration", () => {
       service.markApplied(proposal.id, { workspace_id: workspaceId, actor: "operator" }),
     ).toThrow(OrgChangeApplyPausedError);
     expect(new OrgChangeProposalStore(database).get(proposal.id)?.status).toBe("approved");
+  });
+});
+
+describe("truth-in-status for applier-less change types (#105)", () => {
+  /** An approved `policy` proposal — a change type with NO registered applier. */
+  function approvedPolicyChange(workspaceId: string): string {
+    const { proposal, approval_id } = new OrgChangeService(database).propose({
+      id: newId("orgchg"),
+      workspace_id: workspaceId,
+      proposed_by: "learning_service",
+      change_type: "policy",
+      rationale: "Tighten the review policy.",
+      evidence: [
+        { kind: "approval", ref_id: `approval_${"0".repeat(32)}`, summary: "queue", weight: 1 },
+      ],
+      patch_json: { recommendation: "Review the approval policy." },
+    });
+    approve(workspaceId, approval_id);
+    return proposal.id;
+  }
+
+  it("acknowledges instead of applying: honest status, honest event, no application row", async () => {
+    const workspaceId = await seedWorkspace();
+    const proposalId = approvedPolicyChange(workspaceId);
+
+    const acknowledged = new OrgChangeService(database).markApplied(proposalId, {
+      workspace_id: workspaceId,
+      actor: "operator",
+    });
+
+    expect(acknowledged.status).toBe("acknowledged");
+    expect(acknowledged.acknowledged_at).not.toBeNull();
+    expect(acknowledged.applied_at).toBeNull();
+    // No OrgChangeApplication row: nothing was applied, so nothing claims it was.
+    expect(
+      new OrgChangeApplicationStore(database).getForProposal(workspaceId, proposalId),
+    ).toBeNull();
+    // The event says honestly what happened — and never `org_change.applied`.
+    const events = new EventStore(database).listForWorkspace(workspaceId);
+    expect(events.map((event) => event.kind)).not.toContain("org_change.applied");
+    const acknowledgedEvent = events.find((event) => event.kind === "org_change.acknowledged");
+    expect(acknowledgedEvent?.payload.data.applied).toBe(false);
+    expect(acknowledgedEvent?.payload.data.no_applier_registered).toBe(true);
+    // The ratified recommendation stays auditable on the event payload.
+    expect(
+      (acknowledgedEvent?.payload.data.org_change_proposal as { patch_json: unknown }).patch_json,
+    ).toEqual({ recommendation: "Review the approval policy." });
+  });
+
+  it("replaying apply on an acknowledged record is idempotent and never graduates it", async () => {
+    const workspaceId = await seedWorkspace();
+    const proposalId = approvedPolicyChange(workspaceId);
+    const service = new OrgChangeService(database);
+
+    const first = service.markApplied(proposalId, { workspace_id: workspaceId, actor: "operator" });
+    const replay = service.markApplied(proposalId, {
+      workspace_id: workspaceId,
+      actor: "another_operator",
+    });
+
+    expect(replay).toEqual(first);
+    expect(replay.status).toBe("acknowledged");
+    expect(
+      eventKinds(workspaceId).filter((kind) => kind === "org_change.acknowledged"),
+    ).toHaveLength(1);
+  });
+
+  it("withdraws an acknowledged record (its defined revert semantics), idempotently", async () => {
+    const workspaceId = await seedWorkspace();
+    const proposalId = approvedPolicyChange(workspaceId);
+    const service = new OrgChangeService(database);
+    service.markApplied(proposalId, { workspace_id: workspaceId, actor: "operator" });
+
+    const withdrawn = service.withdraw(proposalId, {
+      workspace_id: workspaceId,
+      actor: "operator",
+    });
+    const replay = service.withdraw(proposalId, { workspace_id: workspaceId, actor: "operator" });
+
+    expect(withdrawn.status).toBe("withdrawn");
+    expect(withdrawn.withdrawn_at).not.toBeNull();
+    expect(replay).toEqual(withdrawn);
+    expect(eventKinds(workspaceId).filter((kind) => kind === "org_change.withdrawn")).toHaveLength(
+      1,
+    );
+    expect(new OrgChangeProposalStore(database).get(proposalId)?.status).toBe("withdrawn");
+  });
+
+  it("refuses to withdraw a really-applied change — reverting the application is the path", async () => {
+    const workspaceId = await seedWorkspace();
+    const entry = makeEntry(workspaceId);
+    const proposalId = approvedCleanup(workspaceId, [entry.id]);
+    const service = new OrgChangeService(database);
+    service.markApplied(proposalId, { workspace_id: workspaceId, actor: "operator" });
+
+    expect(() =>
+      service.withdraw(proposalId, { workspace_id: workspaceId, actor: "operator" }),
+    ).toThrow(OrgChangeServiceError);
+    expect(new OrgChangeProposalStore(database).get(proposalId)?.status).toBe("applied");
+    expect(eventKinds(workspaceId)).not.toContain("org_change.withdrawn");
+  });
+
+  it("refuses to withdraw a proposal that was never acknowledged", async () => {
+    const workspaceId = await seedWorkspace();
+    const proposalId = approvedPolicyChange(workspaceId);
+
+    expect(() =>
+      new OrgChangeService(database).withdraw(proposalId, {
+        workspace_id: workspaceId,
+        actor: "operator",
+      }),
+    ).toThrow(OrgChangeServiceError);
+    expect(new OrgChangeProposalStore(database).get(proposalId)?.status).toBe("approved");
   });
 });
 

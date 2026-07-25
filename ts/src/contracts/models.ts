@@ -46,6 +46,12 @@ export const ProvenanceSchema = z
     run_id: CanonicalIdSchema.nullable().default(null),
     source_event_id: CanonicalIdSchema.nullable().default(null),
     note: z.string().nullable().default(null),
+    // Trust-bearing refs (#113). The trust tier of a memory entry is never
+    // writer-asserted: it is derived by resolving these refs against the
+    // stores (see memory/provenance.ts deriveMemoryTrust). Both are additive
+    // with null defaults so pre-#113 payloads keep parsing.
+    capability_result_id: CanonicalIdSchema.nullable().default(null),
+    attested_by: z.string().min(1).nullable().default(null),
   })
   .strict();
 
@@ -241,6 +247,13 @@ export const RunSchema = z
   })
   .strict();
 
+// Per-capability resource scope for a bounded envelope: capability_name -> resource field -> the
+// exact set of allowed values. A capability that declares `resource_fields` may only act on a
+// resource whose value for each field is listed here, so granting `github.create_issue_comment`
+// no longer means "any repo" — it means exactly the repos the envelope pinned.
+export const ResourceGrantsSchema = z.record(z.string(), z.record(z.string(), z.array(z.string())));
+export type ResourceGrants = z.infer<typeof ResourceGrantsSchema>;
+
 export const TaskEnvelopeSchema = z
   .object({
     id: CanonicalIdSchema,
@@ -253,6 +266,7 @@ export const TaskEnvelopeSchema = z
     context_refs: z.array(z.string()).default([]),
     allowed_capabilities: z.array(z.string()).default([]),
     approval_gates: z.array(z.string()).default([]),
+    resource_grants: ResourceGrantsSchema.default({}),
   })
   .strict();
 
@@ -269,6 +283,7 @@ export const BoundedWorkEnvelopeSchema = z
     context_refs: z.array(z.string()).default([]),
     allowed_capabilities: z.array(z.string()).default([]),
     approval_gates: z.array(z.string()).default([]),
+    resource_grants: ResourceGrantsSchema.default({}),
     input: recordSchema.default({}),
     created_at: UtcTimestampSchema,
     expires_at: UtcTimestampSchema.nullable().default(null),
@@ -339,6 +354,10 @@ export const CapabilitySchema = z
     default_permission: z
       .enum(["enabled", "approval_required", "disabled"])
       .default("approval_required"),
+    // Input fields that name the RESOURCE a side effect acts on (e.g. ["owner", "repo"] for a
+    // GitHub comment). When non-empty, every call must carry an envelope resource grant for each
+    // field — a granted capability can no longer act on an arbitrary resource (default-deny).
+    resource_fields: z.array(z.string()).default([]),
   })
   .strict();
 
@@ -660,12 +679,28 @@ export const OrgChangeProposalSchema = z
     impact: z.enum(["low", "medium", "high"]).default("medium"),
     review_approval_id: CanonicalIdSchema.nullable().default(null),
     // `pending` is retained for pre-institutional-learning/manual compatibility; services create `proposed`.
+    // Truth-in-status (#105): `applied` is reserved for change types with a real applier (a
+    // reversible OrgChangeApplication exists). An approved proposal whose type has NO applier is
+    // recorded as `acknowledged` — the ratified recommendation is kept, nothing is mutated, and
+    // the record never claims `applied`. An acknowledged record's defined revert semantics are
+    // withdrawal (`withdrawn`, terminal).
     status: z
-      .enum(["draft", "pending", "proposed", "approved", "rejected", "applied"])
+      .enum([
+        "draft",
+        "pending",
+        "proposed",
+        "approved",
+        "rejected",
+        "applied",
+        "acknowledged",
+        "withdrawn",
+      ])
       .default("draft"),
     created_at: UtcTimestampSchema,
     resolved_at: UtcTimestampSchema.nullable().default(null),
     applied_at: UtcTimestampSchema.nullable().default(null),
+    acknowledged_at: UtcTimestampSchema.nullable().default(null),
+    withdrawn_at: UtcTimestampSchema.nullable().default(null),
   })
   .strict();
 

@@ -22,6 +22,7 @@ import {
   AutonomyServiceError,
   AutonomyStepError,
   InsufficientTrackRecordError,
+  OrgChangeService,
 } from "../src/org/index.js";
 import {
   AutonomyCaseStore,
@@ -32,6 +33,7 @@ import {
   OrgChangeProposalStore,
   WorkspaceStore,
 } from "../src/persistence/index.js";
+import { createApprovalServiceWithApplications } from "../src/runtime/approvals.js";
 
 const fixturePath = new URL("../../tests/fixtures/canonical_v0.json", import.meta.url);
 const ORG_ID = `org_${"a".repeat(32)}`;
@@ -159,6 +161,60 @@ describe("M4 earned autonomy", () => {
       }),
     ).toThrow(InsufficientTrackRecordError);
     expect(orgLevel()).toBe("advisory");
+  });
+
+  it("excludes acknowledged (applier-less) org changes from the autonomy track record", async () => {
+    const workspaceId = await seedWorkspace();
+    seedOrg(workspaceId, "advisory");
+    seedVerifiedApplications(workspaceId, 2);
+
+    // An acknowledged outcome produced through the real service path: an approved `policy` change
+    // (no registered applier) is recorded as `acknowledged` (#105) — it creates no
+    // OrgChangeApplication row, so it can never inflate the audited track record.
+    const orgChanges = new OrgChangeService(database);
+    const { proposal, approval_id } = orgChanges.propose({
+      id: newId("orgchg"),
+      workspace_id: workspaceId,
+      proposed_by: "learning_service",
+      change_type: "policy",
+      rationale: "Tighten the review policy.",
+      evidence: [
+        { kind: "approval", ref_id: `approval_${"0".repeat(32)}`, summary: "queue", weight: 1 },
+      ],
+      patch_json: { recommendation: "Review the approval policy." },
+    });
+    createApprovalServiceWithApplications(database).approve(approval_id, {
+      workspace_id: workspaceId,
+      actor: "human",
+    });
+    const acknowledged = orgChanges.markApplied(proposal.id, {
+      workspace_id: workspaceId,
+      actor: "operator",
+    });
+    expect(acknowledged.status).toBe("acknowledged");
+
+    // 2 verified + 1 acknowledged is still a track record of 2: the widening is refused.
+    const service = new AutonomyService(database, { minTrackRecord: 3 });
+    expect(() =>
+      service.proposeWidening({
+        workspace_id: workspaceId,
+        org_id: ORG_ID,
+        proposed_by: "learning_service",
+        rationale: "Counting recommendations as applies.",
+        evidence,
+      }),
+    ).toThrow(InsufficientTrackRecordError);
+
+    // Only a real, verified apply moves the count.
+    seedVerifiedApplications(workspaceId, 1);
+    const proposed = service.proposeWidening({
+      workspace_id: workspaceId,
+      org_id: ORG_ID,
+      proposed_by: "learning_service",
+      rationale: "Three genuinely verified applies.",
+      evidence,
+    });
+    expect(proposed.proposed_level).toBe("supervised");
   });
 
   it("refuses to widen without an evidence packet", async () => {

@@ -179,9 +179,10 @@ describe("TypeScript persistence", () => {
         "traces",
         "node_effects",
         "active_run_locks",
+        "worker_credentials",
       ]),
     );
-    expect(userVersion).toBe(7);
+    expect(userVersion).toBe(8);
   });
 
   it("saves workspaces idempotently and rejects conflicting overwrites", async () => {
