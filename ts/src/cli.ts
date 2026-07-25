@@ -600,6 +600,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           write,
           createApprovalServiceWithApplications(database).approve(approvalId, {
             workspace_id: selectedWorkspace,
+            actor: "cli_operator",
           }),
         );
       }

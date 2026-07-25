@@ -7,11 +7,17 @@ export function createApprovalServiceWithApplications(database: Database): Appro
   return new ApprovalService(database, {
     applyWithoutRun: (approval) => {
       if (approval.payload.target_type === "promotion_candidate") {
-        new PromotionService(database).ratifyAndWriteCollective(approval.payload.target_id, {
-          workspace_id: approval.workspace_id,
-          approval_id: approval.id,
-          resolved_at: approval.resolved_at,
-        });
+        // Production promotions into collective memory require at least one independent
+        // corroboration (a distinct actor). The deterministic spine demo path constructs its own
+        // PromotionService and is intentionally unaffected.
+        new PromotionService(database, { min_corroboration: 1 }).ratifyAndWriteCollective(
+          approval.payload.target_id,
+          {
+            workspace_id: approval.workspace_id,
+            approval_id: approval.id,
+            resolved_at: approval.resolved_at,
+          },
+        );
         return;
       }
       if (approval.payload.target_type === "org_change_proposal") {
