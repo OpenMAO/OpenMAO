@@ -94,5 +94,10 @@ export {
   WorkItemConflictError,
   WorkItemStore,
 } from "./work.js";
+export {
+  hashWorkerToken,
+  type WorkerCredential,
+  WorkerCredentialStore,
+} from "./worker-credentials.js";
 export { WorkspaceConflictError, WorkspaceStore } from "./workspaces.js";
 export { WorldModelSnapshotStore } from "./world-models.js";

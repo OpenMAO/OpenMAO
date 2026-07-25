@@ -24,9 +24,8 @@ const GENESIS_HASH = "0".repeat(64);
  * changes the digest.
  */
 function hashEvent(event: Event): string {
-  return createHash("sha256")
-    .update(dumpJson({ ...event, hash: undefined }))
-    .digest("hex");
+  const { hash: _hash, ...content } = event;
+  return createHash("sha256").update(dumpJson(content)).digest("hex");
 }
 
 /** Result of walking a workspace event chain; `broken_at` localizes the first failure. */
