@@ -7,6 +7,12 @@ export function jsonEqual(left: unknown, right: unknown): boolean {
 }
 
 function stabilize(value: unknown): unknown {
+  if (value === undefined) {
+    // JSON.stringify silently drops undefined-valued keys (and nulls array
+    // elements), so {a: undefined} and {} would collapse to one digest in the
+    // hash chain. Refuse anything the output cannot represent faithfully.
+    throw new TypeError("dumpJson: undefined is not JSON-representable");
+  }
   if (Array.isArray(value)) {
     return value.map((item) => stabilize(item));
   }
