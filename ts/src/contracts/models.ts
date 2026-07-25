@@ -673,12 +673,28 @@ export const OrgChangeProposalSchema = z
     impact: z.enum(["low", "medium", "high"]).default("medium"),
     review_approval_id: CanonicalIdSchema.nullable().default(null),
     // `pending` is retained for pre-institutional-learning/manual compatibility; services create `proposed`.
+    // Truth-in-status (#105): `applied` is reserved for change types with a real applier (a
+    // reversible OrgChangeApplication exists). An approved proposal whose type has NO applier is
+    // recorded as `acknowledged` — the ratified recommendation is kept, nothing is mutated, and
+    // the record never claims `applied`. An acknowledged record's defined revert semantics are
+    // withdrawal (`withdrawn`, terminal).
     status: z
-      .enum(["draft", "pending", "proposed", "approved", "rejected", "applied"])
+      .enum([
+        "draft",
+        "pending",
+        "proposed",
+        "approved",
+        "rejected",
+        "applied",
+        "acknowledged",
+        "withdrawn",
+      ])
       .default("draft"),
     created_at: UtcTimestampSchema,
     resolved_at: UtcTimestampSchema.nullable().default(null),
     applied_at: UtcTimestampSchema.nullable().default(null),
+    acknowledged_at: UtcTimestampSchema.nullable().default(null),
+    withdrawn_at: UtcTimestampSchema.nullable().default(null),
   })
   .strict();
 

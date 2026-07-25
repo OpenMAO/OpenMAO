@@ -297,7 +297,9 @@ export class AutonomyService {
 
   // The audited track record: verified OrgChangeApplication *records* (successful, post-apply-checked
   // applies) in the workspace — NOT raw `org_change.verified` events, which the event log would
-  // accept synthetically. Autonomy is earned against these structured apply artifacts.
+  // accept synthetically. Autonomy is earned against these structured apply artifacts. Acknowledged
+  // org changes (applier-less recommendations, #105) never create an application row, so they
+  // are structurally excluded: a recommendation that changed nothing earns nothing.
   private verifiedApplyCount(workspaceId: string): number {
     return this.applications
       .listForWorkspace(workspaceId)

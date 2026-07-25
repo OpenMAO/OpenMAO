@@ -452,12 +452,15 @@ describe("v7 one-time causal backfill for pre-M0 events (#109)", () => {
     }
   });
 
-  it("stamps schema version 7 and re-running the migration changes nothing", () => {
-    expect(database.connection.pragma("user_version", { simple: true })).toBe(7);
+  it("stamps the current schema version and re-running the migration changes nothing", () => {
+    // The v6 fixture migrates straight to the CURRENT version (v8 as of the
+    // truth-in-status relabel, #105); only the current version is stamped on top
+    // of the fixture's own.
+    expect(database.connection.pragma("user_version", { simple: true })).toBe(8);
     const versions = database.connection
       .prepare("SELECT version FROM schema_version ORDER BY version")
       .all() as Array<{ version: number }>;
-    expect(versions.map((row) => row.version)).toEqual([6, 7]);
+    expect(versions.map((row) => row.version)).toEqual([6, 8]);
 
     const afterFirstRun = allPayloadJson();
     // Force a second pass (e.g. a restored backup re-running the migration):
@@ -465,7 +468,7 @@ describe("v7 one-time causal backfill for pre-M0 events (#109)", () => {
     database.connection.pragma("user_version = 6");
     reopenDatabase();
     expect(allPayloadJson()).toEqual(afterFirstRun);
-    expect(database.connection.pragma("user_version", { simple: true })).toBe(7);
+    expect(database.connection.pragma("user_version", { simple: true })).toBe(8);
   });
 
   it("lets the enriched emitter replay legacy events idempotently after the backfill", () => {
@@ -643,6 +646,8 @@ describe("v7 one-time causal backfill for pre-M0 events (#109)", () => {
 
     expect(freshDdl.length).toBeGreaterThan(0);
     expect(structuralDdl(database)).toEqual(freshDdl);
-    expect(database.connection.pragma("user_version", { simple: true })).toBe(7);
+    // v8 (the truth-in-status relabel, #105) is data-only too, so the same
+    // structural-identity contract carries through to the current version.
+    expect(database.connection.pragma("user_version", { simple: true })).toBe(8);
   });
 });

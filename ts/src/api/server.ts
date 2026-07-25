@@ -1560,8 +1560,8 @@ function consoleHtml(): string {
     };
 
     var STATE_FAMILY = {
-      queued: "neutral", draft: "neutral", idle: "neutral", log_only: "neutral",
-      running: "info", in_progress: "info",
+      queued: "neutral", draft: "neutral", idle: "neutral", log_only: "neutral", withdrawn: "neutral",
+      running: "info", in_progress: "info", acknowledged: "info",
       proposed: "pending", pending: "pending", require_approval: "pending", approval_required: "pending",
       suspended_approval: "pending", provisional: "pending", review: "pending",
       approved: "success", allow: "success", done: "success", completed: "success",
@@ -1907,6 +1907,10 @@ function consoleHtml(): string {
             actions.appendChild(actionBtn("Apply", { onClick: postAction("/learning/proposals/" + p.id + "/apply", "proposal applied to org") }));
           } else if (p.status === "applied") {
             actions.appendChild(el("span", { class: "meta-line", style: "color:var(--state-success-fg)", text: "applied to org" }));
+          } else if (p.status === "acknowledged") {
+            actions.appendChild(el("span", { class: "meta-line", text: "acknowledged — recorded, not applied (no applier for this change type)" }));
+          } else if (p.status === "withdrawn") {
+            actions.appendChild(el("span", { class: "meta-line", text: "withdrawn" }));
           } else if (p.status === "rejected") {
             actions.appendChild(el("span", { class: "meta-line", text: "dismissed" }));
           }

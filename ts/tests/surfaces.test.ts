@@ -421,7 +421,9 @@ describe("TypeScript operator surfaces", () => {
         write: appliedOutput.write,
       }),
     ).toBe(0);
-    expect(JSON.parse(appliedOutput.lines[0] ?? "{}").status).toBe("applied");
+    // `workflow` has no real applier: the record is acknowledged, never claimed `applied`
+    // (truth-in-status, #105).
+    expect(JSON.parse(appliedOutput.lines[0] ?? "{}").status).toBe("acknowledged");
   });
 
   it("runs the reference external-worker demo through the CLI", async () => {
@@ -851,7 +853,8 @@ describe("TypeScript operator surfaces", () => {
       expect(scan.proposals.at(0)?.proposal.status).toBe("proposed");
       expect(proposal?.status).toBe("proposed");
       expect(approved.status).toBe("approved");
-      expect(applied.status).toBe("applied");
+      // `workflow` has no real applier: acknowledged, never `applied` (#105).
+      expect(applied.status).toBe("acknowledged");
       expect(world.learning_signals).toContain("repeated_blocker");
     } finally {
       await new Promise<void>((resolve, reject) => {

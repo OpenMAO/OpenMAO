@@ -165,7 +165,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
 
     if (command === "help" || command === "--help" || command === "-h") {
       write(
-        "openmao demo | demo-approve | demo-deny | init | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | memory search|list|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | verify-chain | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | console",
+        "openmao demo | demo-approve | demo-deny | init | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert|withdraw | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | memory search|list|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | verify-chain | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | console",
       );
       return 0;
     }
@@ -479,11 +479,36 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         proposalId,
       );
       if (!application) {
+        // Truth-in-status (#105): an `acknowledged` record was never applied, so there is
+        // nothing to reverse — its defined revert semantics are withdrawal, a separate explicit
+        // operation.
+        const proposal = new OrgChangeProposalStore(database).get(proposalId);
+        if (proposal?.workspace_id === selectedWorkspace && proposal.status === "acknowledged") {
+          throw new Error(
+            `org change ${proposalId} is acknowledged (recorded only — nothing was applied), so there is nothing to revert; use \`learning withdraw ${proposalId}\` to withdraw it`,
+          );
+        }
         throw new Error(`no applied change found for proposal: ${proposalId}`);
       }
       printJson(
         write,
         new OrgChangeService(database).revertApplication(application.id, {
+          workspace_id: selectedWorkspace,
+          actor: "cli_operator",
+        }),
+      );
+      return 0;
+    }
+    if (command === "learning" && subcommand === "withdraw") {
+      // Withdraw an acknowledged (applier-less) org change record — valid only from
+      // `acknowledged`, idempotent, and audited as `org_change.withdrawn` (#105).
+      const proposalId = positions[2];
+      if (!proposalId) {
+        throw new Error("proposal id is required");
+      }
+      printJson(
+        write,
+        new OrgChangeService(database).withdraw(proposalId, {
           workspace_id: selectedWorkspace,
           actor: "cli_operator",
         }),
