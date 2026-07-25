@@ -81,7 +81,10 @@ export async function approveReferenceWorkerDemo(
   return finalizeReferenceWorkerDemo(database, context, invocation);
 }
 
-function prepareReferenceWorkerDemo(database: Database): ReferenceWorkerContext {
+// Exported as a test/demo seam: seeds the worker, work item, run, bounded envelope, task envelope,
+// and the side-effecting capability WITHOUT invoking it — so the run stays `running` and callers
+// (e.g. the external-worker HTTP route) can initiate a fresh governed call against a clean envelope.
+export function prepareReferenceWorkerDemo(database: Database): ReferenceWorkerContext {
   new SpineService(database).initDemoWorkspace();
   const client = new OpenMaoLocalClient(database, {
     workspace_id: WORKSPACE_ID,
