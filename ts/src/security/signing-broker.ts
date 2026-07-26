@@ -47,11 +47,14 @@ function handleToEnvKey(handle: string, prefix: string): string {
 /**
  * Imports base64/base64url PKCS8 DER key material. Any failure throws a
  * fixed-message error: the material itself must never appear in a message,
- * log, or stack-adjacent string.
+ * log, or stack-adjacent string. The algorithm is pinned to Ed25519 here too:
+ * `crypto.sign(null, …)` derives its behaviour from whatever key it is handed,
+ * so a non-Ed25519 key is refused at import rather than signed with silently.
  */
 function importPkcs8(handle: string, material: string): KeyObject {
+  let key: KeyObject;
   try {
-    return createPrivateKey({
+    key = createPrivateKey({
       key: Buffer.from(material, "base64url"),
       format: "der",
       type: "pkcs8",
@@ -59,6 +62,10 @@ function importPkcs8(handle: string, material: string): KeyObject {
   } catch {
     throw new SigningBrokerError(`signing key material is not valid PKCS8 for handle: ${handle}`);
   }
+  if (key.asymmetricKeyType !== "ed25519") {
+    throw new SigningBrokerError(`signing key material is not Ed25519 for handle: ${handle}`);
+  }
+  return key;
 }
 
 /**
@@ -68,14 +75,20 @@ function importPkcs8(handle: string, material: string): KeyObject {
  * deployment simply has no signer.
  */
 export class EnvSigningBroker implements SigningBroker {
-  constructor(
-    private readonly env: NodeJS.ProcessEnv = process.env,
-    private readonly prefix: string = DEFAULT_ENV_PREFIX,
-  ) {}
+  // ECMAScript-private fields: the custody boundary is runtime-enforced, not
+  // TypeScript-only. Neither enumeration, serialization, nor a cast can reach
+  // the key store.
+  readonly #env: NodeJS.ProcessEnv;
+  readonly #prefix: string;
+
+  constructor(env: NodeJS.ProcessEnv = process.env, prefix: string = DEFAULT_ENV_PREFIX) {
+    this.#env = env;
+    this.#prefix = prefix;
+  }
 
   sign(handle: string, bytes: Buffer): Buffer | null {
     validateSigningHandle(handle);
-    const value = this.env[handleToEnvKey(handle, this.prefix)];
+    const value = this.#env[handleToEnvKey(handle, this.#prefix)];
     if (value === undefined || value.trim().length === 0) {
       return null;
     }
@@ -88,14 +101,15 @@ export class EnvSigningBroker implements SigningBroker {
  * handle -> base64/base64url PKCS8 map; never reads the environment.
  */
 export class StaticSigningBroker implements SigningBroker {
-  private readonly handles: Map<string, string>;
+  readonly #handles: Map<string, string>;
 
   constructor(handles: Record<string, string> = {}) {
-    this.handles = new Map(Object.entries(handles));
+    this.#handles = new Map(Object.entries(handles));
   }
 
   sign(handle: string, bytes: Buffer): Buffer | null {
-    const value = this.handles.get(handle);
+    validateSigningHandle(handle);
+    const value = this.#handles.get(handle);
     if (value === undefined || value.trim().length === 0) {
       return null;
     }

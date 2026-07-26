@@ -1,3 +1,5 @@
-{ "invocations": {"driver": 2, "k3-worker": 2, "gpt-worker": 0},
-  "iterations": {"M1": 2}, "wall_clock_seconds": 900, "resumes_without_progress": 1,
-  "last_accepted_milestone": null, "tick_count": 2, "budget_caps": {"ticks": 24, "wall_clock_hours": 12} }
+{ "invocations": {"driver": 4, "k3-worker": 4, "gpt-worker": 3},
+  "iterations": {"M1": 3},
+  "iteration_note": "M1 took 3 code-attempts (an earlier permission-classifier denial produced no code and was counted as environmental, recorded openly). Accepted on attempt 3 plus one driver-applied perf fix.",
+  "wall_clock_seconds": 9000, "resumes_without_progress": 0,
+  "last_accepted_milestone": "M1", "tick_count": 4, "budget_caps": {"ticks": 24, "wall_clock_hours": 12} }

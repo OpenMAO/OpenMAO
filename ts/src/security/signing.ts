@@ -23,10 +23,11 @@ import { dumpJson } from "../persistence/serialization.js";
  *
  * The verifier never throws on a bad signature and never returns a bare
  * boolean: every refusal is a typed reason code, evaluated fail-closed in a
- * fixed order (typ -> key lookup -> standing -> conditions -> body claims ->
- * signature shape -> cryptographic check). The algorithm is pinned to
- * Ed25519 in code; the presented header's `alg` member is never used to
- * select an algorithm. `kid` is a lookup hint only.
+ * fixed order (typ -> key lookup -> header algorithm -> standing ->
+ * conditions -> body claims -> signature shape -> cryptographic check). The
+ * algorithm is pinned to Ed25519 in code on both the signing and verifying
+ * paths; the presented header's `alg` member is never used to select an
+ * algorithm. `kid` is a lookup hint only.
  *
  * No timestamps are taken here: any time inside a signed body is a parameter
  * placed there by the caller from stored state, and the validity window is
@@ -67,6 +68,21 @@ const ED25519_SIGNATURE_BYTES = 64;
 const ED25519_GROUP_ORDER = 2n ** 252n + 27742317777372353535851937790883648493n;
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]*$/;
 
+/**
+ * Canonical base64url only: the URL alphabet, no padding, and no non-zero
+ * unused pad bits. `Buffer.from(…, "base64url")` is lenient — encodings that
+ * differ only in the unused bits of the final character decode to identical
+ * bytes — so a segment is accepted only if re-encoding the decoded bytes
+ * reproduces it exactly. Without this, one signature has several accepted
+ * textual forms and the format disagrees with strict JOSE verifiers.
+ */
+function isCanonicalBase64Url(segment: string): boolean {
+  return (
+    BASE64URL_PATTERN.test(segment) &&
+    Buffer.from(segment, "base64url").toString("base64url") === segment
+  );
+}
+
 export type ProtectedHeader = {
   alg: typeof ED25519_ALGORITHM;
   kid: string;
@@ -91,6 +107,21 @@ export function encodeSegment(bytes: Buffer): string {
 
 export function buildSigningInput(protectedHeaderSegment: string, payloadSegment: string): string {
   return `${protectedHeaderSegment}.${payloadSegment}`;
+}
+
+/** Thrown when a non-Ed25519 key is presented for signing. */
+export class SigningKeyTypeError extends Error {}
+
+/**
+ * The algorithm is pinned to Ed25519 on both paths. `crypto.sign(null, …)`
+ * derives its behaviour from whatever key it is handed — an RSA or Ed448 key
+ * would produce a signature this module would then label `alg: "EdDSA"` — so
+ * the key type is checked in code, never inferred.
+ */
+function assertEd25519PrivateKey(privateKey: KeyObject): void {
+  if (privateKey.asymmetricKeyType !== "ed25519") {
+    throw new SigningKeyTypeError("signing key must be an Ed25519 private key");
+  }
 }
 
 export type SignedEnvelope = {
@@ -118,6 +149,7 @@ export function signObject(input: {
   body: Record<string, unknown>;
   privateKey: KeyObject;
 }): SignedEnvelope {
+  assertEd25519PrivateKey(input.privateKey);
   const protectedHeaderJson = dumpJson(buildProtectedHeader(input.objectClass, input.keyId));
   const protectedHeaderSegment = encodeSegment(Buffer.from(protectedHeaderJson, "utf8"));
   const payloadBytes = payloadBytesForBody(input.body);
@@ -228,9 +260,9 @@ function verifyObjectInner(input: {
   if (
     protectedHeaderSegment.length === 0 ||
     payloadSegment.length === 0 ||
-    !BASE64URL_PATTERN.test(protectedHeaderSegment) ||
-    !BASE64URL_PATTERN.test(payloadSegment) ||
-    !BASE64URL_PATTERN.test(signatureSegment)
+    !isCanonicalBase64Url(protectedHeaderSegment) ||
+    !isCanonicalBase64Url(payloadSegment) ||
+    !isCanonicalBase64Url(signatureSegment)
   ) {
     return fail("malformed_envelope");
   }
@@ -240,18 +272,36 @@ function verifyObjectInner(input: {
     return fail("malformed_envelope");
   }
 
+  // The refusal order is contractual — reason codes land in audit records, so
+  // they must be accurate: typ classification first, then key-id resolution,
+  // then algorithm/shape, and only then the cryptographic check.
+  const headerKeyId = typeof header.kid === "string" ? header.kid : null;
+  if (typeof header.typ !== "string") {
+    return fail("unrecognized_typ", headerKeyId);
+  }
   const presentedClass = classForMediaType(header.typ);
   if (!presentedClass) {
-    return fail("unrecognized_typ", header.kid);
+    return fail("unrecognized_typ", headerKeyId);
   }
   if (presentedClass !== input.expectedClass) {
-    return fail("class_mismatch", header.kid);
+    return fail("class_mismatch", headerKeyId);
   }
 
-  const key = input.keys.find((candidate) => candidate.keyId === header.kid);
-  if (!key) {
-    return fail("unknown_key", header.kid);
+  if (headerKeyId === null) {
+    return fail("unknown_key");
   }
+  const key = input.keys.find((candidate) => candidate.keyId === headerKeyId);
+  if (!key) {
+    return fail("unknown_key", headerKeyId);
+  }
+
+  // `alg` is not read to select an algorithm (Ed25519 is pinned in code), but
+  // an envelope claiming any other algorithm — or none — is not a well-formed
+  // EdDSA JWS and is refused on shape, once typ and key id have resolved.
+  if (header.alg !== ED25519_ALGORITHM) {
+    return fail("malformed_envelope", key.keyId);
+  }
+
   if (!key.enrolled) {
     return fail("key_not_enrolled", key.keyId);
   }
@@ -324,7 +374,7 @@ function verifyObjectInner(input: {
   };
 }
 
-function parseProtectedHeader(segment: string): { kid: string; typ: string } | null {
+function parseProtectedHeader(segment: string): Record<string, unknown> | null {
   let value: unknown;
   try {
     value = JSON.parse(Buffer.from(segment, "base64url").toString("utf8"));
@@ -334,17 +384,7 @@ function parseProtectedHeader(segment: string): { kid: string; typ: string } | n
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
-  const header = value as Record<string, unknown>;
-  // `alg` is not read to select an algorithm (Ed25519 is pinned in code), but
-  // an envelope claiming any other algorithm — or none — is not a well-formed
-  // EdDSA JWS and is refused on shape.
-  if (header.alg !== ED25519_ALGORITHM) {
-    return null;
-  }
-  if (typeof header.kid !== "string" || typeof header.typ !== "string") {
-    return null;
-  }
-  return { kid: header.kid, typ: header.typ };
+  return value as Record<string, unknown>;
 }
 
 function parseBodyClaims(

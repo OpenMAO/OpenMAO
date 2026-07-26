@@ -3,6 +3,7 @@ import {
   createPublicKey,
   sign as cryptoSign,
   verify as cryptoVerify,
+  generateKeyPairSync,
   type KeyObject,
 } from "node:crypto";
 
@@ -15,8 +16,10 @@ import {
   SIGNED_OBJECT_MEDIA_TYPES,
   type SignedEnvelopeParts,
   type SignedObjectClass,
+  SigningKeyTypeError,
   signObject,
   type VerificationKey,
+  type VerifyFailureReason,
   verifyObject,
 } from "../src/security/signing.js";
 
@@ -193,6 +196,93 @@ describe("signing positive cases", () => {
   });
 });
 
+describe("signing algorithm pinning", () => {
+  it("refuses to sign with an RSA key even though crypto.sign would accept it", () => {
+    // crypto.sign(null, …) derives behaviour from the key: an RSA key would
+    // yield a 256-byte signature that signObject would label alg:"EdDSA".
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    expect(privateKey.asymmetricKeyType).toBe("rsa");
+    expect(() =>
+      signObject({
+        objectClass: "governance_decision",
+        keyId: "key_a",
+        body: decisionBody(),
+        privateKey,
+      }),
+    ).toThrow(SigningKeyTypeError);
+  });
+
+  it("refuses to sign with an Ed448 key even though crypto.sign would accept it", () => {
+    const { privateKey } = generateKeyPairSync("ed448");
+    expect(privateKey.asymmetricKeyType).toBe("ed448");
+    expect(() =>
+      signObject({
+        objectClass: "governance_decision",
+        keyId: "key_a",
+        body: decisionBody(),
+        privateKey,
+      }),
+    ).toThrow(SigningKeyTypeError);
+  });
+});
+
+describe("canonical base64url enforcement", () => {
+  const BASE64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+  /**
+   * Flips one unused pad bit of the final character. The decoded bytes are
+   * identical (the guard assertion proves it), but the encoding is not the
+   * canonical one a strict JOSE verifier would produce.
+   */
+  function withFlippedPadBit(segment: string): string {
+    const last = segment.charAt(segment.length - 1);
+    const index = BASE64URL_ALPHABET.indexOf(last);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const flipped = segment.slice(0, -1) + BASE64URL_ALPHABET.charAt(index ^ 1);
+    expect(Buffer.from(flipped, "base64url").equals(Buffer.from(segment, "base64url"))).toBe(true);
+    expect(flipped).not.toBe(segment);
+    return flipped;
+  }
+
+  it("refuses a signature whose unused pad bits are flipped (one signature, one text form)", () => {
+    const envelope = signedDecision();
+    // 64 bytes encode to 86 chars; the final char carries 2 significant bits
+    // and 4 pad bits, so e.g. a trailing `g` and `h` decode identically.
+    const result = verifyWith(
+      {
+        protectedHeaderSegment: envelope.protectedHeaderSegment,
+        payloadSegment: envelope.payloadSegment,
+        signatureSegment: withFlippedPadBit(envelope.signatureSegment),
+      },
+      [verificationKey()],
+    );
+    expect(result).toEqual({ ok: false, reason: "malformed_envelope", keyId: null });
+  });
+
+  it("refuses header and payload segments with flipped pad bits", () => {
+    const envelope = signedDecision();
+    for (const segment of ["protectedHeaderSegment", "payloadSegment"] as const) {
+      const result = verifyWith({ ...envelope, [segment]: withFlippedPadBit(envelope[segment]) }, [
+        verificationKey(),
+      ]);
+      expect(result).toEqual({ ok: false, reason: "malformed_envelope", keyId: null });
+    }
+  });
+
+  it("refuses padded and non-URL-alphabet segments", () => {
+    const envelope = signedDecision();
+    const padded = verifyWith({ ...envelope, signatureSegment: `${envelope.signatureSegment}=` }, [
+      verificationKey(),
+    ]);
+    expect(padded).toEqual({ ok: false, reason: "malformed_envelope", keyId: null });
+    const standardAlphabet = verifyWith(
+      { ...envelope, payloadSegment: `${envelope.payloadSegment.slice(0, -1)}+` },
+      [verificationKey()],
+    );
+    expect(standardAlphabet).toEqual({ ok: false, reason: "malformed_envelope", keyId: null });
+  });
+});
+
 describe("pinned positive vector", () => {
   // Ed25519 is deterministic, so a second implementation can localise any
   // disagreement against these pinned intermediates. The seed is a published
@@ -361,6 +451,37 @@ describe("negative verify vectors", () => {
     expect(result).toEqual({ ok: false, reason: "signature_invalid", keyId: "key_a" });
   });
 
+  it("6b. refuses a semantically identical payload serialized to different bytes", () => {
+    // The discriminating exact-bytes vector: unlike 5 and 6, the claims are
+    // unchanged — only the serialization differs (key order reversed;
+    // insignificant whitespace). A verifier that re-serialized the parsed
+    // body instead of verifying the presented bytes would wrongly ACCEPT
+    // these; exact-byte verification must reject them.
+    const envelope = signedDecision();
+    const parsed = JSON.parse(
+      Buffer.from(envelope.payloadSegment, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    const reordered: Record<string, unknown> = {};
+    for (const key of Object.keys(parsed).reverse()) {
+      reordered[key] = parsed[key];
+    }
+    for (const variant of [JSON.stringify(reordered), JSON.stringify(parsed, null, 2)]) {
+      // Guards: the variant really is semantically identical and really is a
+      // different byte string than the one that was signed.
+      expect(JSON.parse(variant)).toEqual(parsed);
+      expect(Buffer.from(variant, "utf8").equals(envelope.payloadBytes)).toBe(false);
+      const result = verifyWith(
+        {
+          protectedHeaderSegment: envelope.protectedHeaderSegment,
+          payloadSegment: Buffer.from(variant, "utf8").toString("base64url"),
+          signatureSegment: envelope.signatureSegment,
+        },
+        [verificationKey()],
+      );
+      expect(result).toEqual({ ok: false, reason: "signature_invalid", keyId: "key_a" });
+    }
+  });
+
   it("7. refuses a signature under a key id marked revoked", () => {
     const result = verifyWith(signedDecision(), [verificationKey({ status: "revoked" })]);
     expect(result).toEqual({ ok: false, reason: "key_revoked", keyId: "key_a" });
@@ -487,28 +608,82 @@ describe("negative verify vectors", () => {
 });
 
 describe("verifier robustness", () => {
-  it("never throws and never returns true on garbage input", () => {
-    const cases: SignedEnvelopeParts[] = [
-      { protectedHeaderSegment: "!!!", payloadSegment: "???", signatureSegment: "$$$" },
-      { protectedHeaderSegment: "", payloadSegment: "", signatureSegment: "" },
+  it("never throws and refuses garbage input with the contractual reason code", () => {
+    // Reason codes land in audit records, so each case asserts the specific
+    // code — and the contractual refusal order (typ -> key id -> algorithm/
+    // shape -> cryptographic check), not merely "some string".
+    const cases: Array<{
+      envelope: SignedEnvelopeParts;
+      reason: VerifyFailureReason;
+      keyId: string | null;
+    }> = [
       {
-        protectedHeaderSegment: Buffer.from("not json", "utf8").toString("base64url"),
-        payloadSegment: Buffer.from("[]", "utf8").toString("base64url"),
-        signatureSegment: Buffer.alloc(64).toString("base64url"),
+        // Not base64url at all.
+        envelope: { protectedHeaderSegment: "!!!", payloadSegment: "???", signatureSegment: "$$$" },
+        reason: "malformed_envelope",
+        keyId: null,
       },
       {
-        protectedHeaderSegment: headerSegment({ alg: "none", kid: "key_a", typ: "x" }),
-        payloadSegment: Buffer.from("{}", "utf8").toString("base64url"),
-        signatureSegment: Buffer.alloc(64).toString("base64url"),
+        // Empty segments.
+        envelope: { protectedHeaderSegment: "", payloadSegment: "", signatureSegment: "" },
+        reason: "malformed_envelope",
+        keyId: null,
+      },
+      {
+        // Base64url but not a JSON object header.
+        envelope: {
+          protectedHeaderSegment: Buffer.from("not json", "utf8").toString("base64url"),
+          payloadSegment: Buffer.from("[]", "utf8").toString("base64url"),
+          signatureSegment: Buffer.alloc(64).toString("base64url"),
+        },
+        reason: "malformed_envelope",
+        keyId: null,
+      },
+      {
+        // typ classification precedes algorithm validation: alg "none" with an
+        // unrecognised typ is unrecognized_typ, not malformed_envelope.
+        envelope: {
+          protectedHeaderSegment: headerSegment({ alg: "none", kid: "key_a", typ: "x" }),
+          payloadSegment: Buffer.from("{}", "utf8").toString("base64url"),
+          signatureSegment: Buffer.alloc(64).toString("base64url"),
+        },
+        reason: "unrecognized_typ",
+        keyId: "key_a",
+      },
+      {
+        // Key-id resolution precedes algorithm validation: alg "none" with an
+        // unresolvable kid is unknown_key.
+        envelope: {
+          protectedHeaderSegment: headerSegment({
+            alg: "none",
+            kid: "key_missing",
+            typ: mediaTypeForClass("governance_decision"),
+          }),
+          payloadSegment: Buffer.from("{}", "utf8").toString("base64url"),
+          signatureSegment: Buffer.alloc(64).toString("base64url"),
+        },
+        reason: "unknown_key",
+        keyId: "key_missing",
+      },
+      {
+        // Only after typ and key id resolve is a bad alg a shape failure.
+        envelope: {
+          protectedHeaderSegment: headerSegment({
+            alg: "none",
+            kid: "key_a",
+            typ: mediaTypeForClass("governance_decision"),
+          }),
+          payloadSegment: Buffer.from("{}", "utf8").toString("base64url"),
+          signatureSegment: Buffer.alloc(64).toString("base64url"),
+        },
+        reason: "malformed_envelope",
+        keyId: "key_a",
       },
     ];
-    for (const envelope of cases) {
+    for (const { envelope, reason, keyId } of cases) {
       const result = verifyWith(envelope, [verificationKey()]);
       expect(result).not.toBe(true);
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(typeof result.reason).toBe("string");
-      }
+      expect(result).toEqual({ ok: false, reason, keyId });
     }
   });
 });

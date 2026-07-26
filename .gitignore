@@ -55,3 +55,4 @@ coverage/
 # long-horizon-goal local pointers (must not be committed)
 .goal/lease.json
 .goal/last-head
+node_modules

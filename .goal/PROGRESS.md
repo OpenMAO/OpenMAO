@@ -5,8 +5,8 @@ actually been accepted versus attempted.
 
 | Milestone | Status | Accepted at | Notes |
 |---|---|---|---|
-| M1 Crypto core | code written, AUDIT REJECTED (attempt 2) | — | deterministic green (365 vs 329) but cross-family audit found 6 P1 defects; fix round pending |
-| M2 Identity storage | not started | — | — |
+| M1 Crypto core | **ACCEPTED** | 2026-07-26 | 378 tests (baseline 329); 2 audit rounds, 8 findings fixed; driver fixed a quadratic-scan regression |
+| M2 Identity storage | next | — | — |
 | M3 Custody + bootstrap | not started | — | — |
 | M3a Console extraction | not started | — | — |
 | M4 Atomic cutover | not started | — | — |
@@ -78,3 +78,37 @@ Findings, judged on cited evidence and all confirmed reproducible:
 
 **Approach is not blocked** — the design is sound and the defects are specific and mechanical. Next
 attempt fixes these findings rather than re-approaching the milestone.
+
+### M1 — ACCEPTED (2026-07-26)
+
+Two full cross-family audit rounds. GPT rejected K3's work twice; both rejections were correct and
+both were upheld by the judge on cited evidence. Final state: `make check` green, **378 tests vs a
+329 baseline**, scope guards untouched, zero new dependencies.
+
+What the audits caught that a green suite did not:
+- **Ed25519 was pinned on verification but not on signing** — no key-type check existed, so a
+  misconfigured broker would emit RSA or Ed448 signatures labelled `alg:"EdDSA"`. The milestone's
+  central cryptographic contract was unenforced while every test passed.
+- **The custody boundary was TypeScript-only.** `private readonly` erases at runtime; a cast
+  recovered key material. Now ECMAScript `#private`, with a test that enumerates own properties
+  rather than only walking the prototype.
+- **base64url accepted non-canonical encodings** — one signature had several valid textual forms.
+  Now decode/re-encode equality on all three segments.
+- **The exact-bytes invariant had no discriminating test.** Both original vectors mutated semantic
+  content, so a re-serializing verifier would have passed them too. Now pinned by a semantically
+  identical, byte-different payload presented with the original signature.
+- **A fix round introduced a P1 worse than the bug it fixed**: the new scrubber matched a maximal
+  base64 run and anchored DER at offset 0, so `signkey_<material>` — the exact shape key material
+  takes in a log line — evaded detection entirely. Caught only because the auditor probed rather
+  than read.
+
+Driver-applied fix (outside the executor iteration cap, recorded openly): the corrected scrubber
+scanned every offset by decoding the whole remaining run, which is quadratic — 267KB took 4.5s on the
+*ingestion* path, which takes untrusted input with no length cap. Capping each decode window at 72
+characters makes it linear: 267KB now 35ms, a 130x improvement, with all five bypass shapes still
+scrubbed and no false positives.
+
+Also fixed here: `node_modules` was tracked as an absolute-path symlink into another checkout — a
+driver setup error, caused by `.gitignore` listing `node_modules/` with a trailing slash, which does
+not match a symlink of that name. Untracked and properly ignored. The executor's hygiene-script
+workaround was reverted as scope creep once the root cause was gone.

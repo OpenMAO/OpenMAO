@@ -2,6 +2,7 @@ import { verify as cryptoVerify, generateKeyPairSync, type KeyObject } from "nod
 
 import { describe, expect, it } from "vitest";
 
+import { SensitiveMaterialError } from "../src/security/sensitive-material.js";
 import {
   EnvSigningBroker,
   isSigningBroker,
@@ -99,16 +100,54 @@ describe("signing broker", () => {
     it("signs from an explicit map and returns null for misses, empties, and blanks", () => {
       const key = testKey();
       const broker = new StaticSigningBroker({
-        "signkey.test": key.material,
+        signkey_test: key.material,
         signkey_empty: "",
         signkey_blank: "   ",
       });
-      const signature = broker.sign("signkey.test", BYTES);
+      const signature = broker.sign("signkey_test", BYTES);
       expect(signature).not.toBeNull();
       expect(verifySignature(key.publicKey, signature as Buffer)).toBe(true);
       expect(broker.sign("signkey_absent", BYTES)).toBeNull();
       expect(broker.sign("signkey_empty", BYTES)).toBeNull();
       expect(broker.sign("signkey_blank", BYTES)).toBeNull();
+    });
+
+    it("applies the same handle validation as EnvSigningBroker", () => {
+      // A handle the env broker refuses (here: no `signkey_` prefix) must not
+      // sign statically — config must not pass statically and fail in the
+      // environment implementation.
+      const key = testKey();
+      const staticBroker = new StaticSigningBroker({
+        "signkey.test": key.material,
+        signkey_test: key.material,
+      });
+      const envBroker = new EnvSigningBroker({ OPENMAO_SIGNKEY_TEST: key.material });
+      for (const broker of [staticBroker, envBroker]) {
+        expect(() => broker.sign("signkey.test", BYTES)).toThrow(SensitiveMaterialError);
+        expect(() => broker.sign("not-a-handle", BYTES)).toThrow(SensitiveMaterialError);
+      }
+    });
+  });
+
+  describe("algorithm pinning at import", () => {
+    it("refuses RSA and Ed448 key material instead of signing with it", () => {
+      // crypto.sign(null, …) would accept either and produce a non-Ed25519
+      // signature; the brokers refuse at import.
+      const rsaDer = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({
+        format: "der",
+        type: "pkcs8",
+      });
+      const ed448Der = generateKeyPairSync("ed448").privateKey.export({
+        format: "der",
+        type: "pkcs8",
+      });
+      for (const der of [rsaDer, ed448Der]) {
+        const material = Buffer.from(der).toString("base64url");
+        const envBroker = new EnvSigningBroker({ OPENMAO_SIGNKEY_FOREIGN: material });
+        const staticBroker = new StaticSigningBroker({ signkey_foreign: material });
+        expect(() => envBroker.sign("signkey_foreign", BYTES)).toThrow(SigningBrokerError);
+        expect(() => staticBroker.sign("signkey_foreign", BYTES)).toThrow(SigningBrokerError);
+      }
     });
   });
 
@@ -121,16 +160,34 @@ describe("signing broker", () => {
 
   it("exposes no way to read out key material", () => {
     // The custody boundary is the module's entire purpose: callers receive
-    // signatures only. Guard the interface shape so no getter or resolve
-    // escape hatch can be added silently.
+    // signatures only. The key stores are ECMAScript-private fields, so a
+    // cast cannot defeat them — verify that directly, not just the interface
+    // shape.
+    const key = testKey();
     for (const broker of [
-      new EnvSigningBroker({}),
-      new StaticSigningBroker({ signkey_x: testKey().material }),
+      new EnvSigningBroker({ OPENMAO_SIGNKEY_X: key.material }),
+      new StaticSigningBroker({ signkey_x: key.material }),
     ]) {
+      // No getter or resolve escape hatch on the prototype.
       expect(Object.getOwnPropertyNames(Object.getPrototypeOf(broker)).sort()).toEqual([
         "constructor",
         "sign",
       ]);
+      // No own enumerable or non-enumerable properties at all.
+      expect(Object.keys(broker)).toEqual([]);
+      expect(Object.getOwnPropertyNames(broker)).toEqual([]);
+      // Serialization carries nothing.
+      const serialized = JSON.stringify(broker);
+      expect(serialized).toBe("{}");
+      expect(serialized).not.toContain(key.material);
+      // A cast reaches neither the stores nor any alias of them.
+      const cast = broker as unknown as Record<string, unknown>;
+      expect(cast.env).toBeUndefined();
+      expect(cast.handles).toBeUndefined();
+      expect(cast.prefix).toBeUndefined();
+      for (const value of Object.values(cast)) {
+        expect(typeof value === "string" && value.includes(key.material)).toBe(false);
+      }
     }
   });
 });
