@@ -8,7 +8,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createServer } from "../src/api/server.js";
 import { CapabilityCallSchema, CapabilityResultSchema } from "../src/contracts/index.js";
-import { CapabilityCallStore, CapabilityResultStore, Database } from "../src/persistence/index.js";
+import {
+  CapabilityCallStore,
+  CapabilityResultStore,
+  Database,
+  WorkerCredentialStore,
+  WorkerIdentityStore,
+} from "../src/persistence/index.js";
 import { WorkerAuthService } from "../src/security/worker-auth.js";
 import { WORKSPACE_ID } from "../src/spine/index.js";
 import {
@@ -187,6 +193,44 @@ describe("per-worker auth", () => {
       capabilityCallBody({ idempotency_key: "pwa:invalid" }),
     );
     expect(status).toBe(403);
+  });
+
+  it("stops resolving a worker token once its credential is revoked (WorkerCredentialStore.revoke)", () => {
+    // The store modelled status:"revoked" from day one but had no writer — PR #63's unlanded
+    // fast-follow. This proves the writer exists and that resolution honours it.
+    const database = new Database(dbPath);
+    try {
+      const service = new WorkerAuthService(database);
+      const minted = service.mint({
+        workspace_id: WORKSPACE_ID,
+        worker_id: REFERENCE_WORKER_ID,
+      });
+      expect(service.resolve(minted.token)).not.toBeNull();
+      new WorkerCredentialStore(database).revoke(minted.credential_id);
+      expect(service.resolve(minted.token)).toBeNull();
+    } finally {
+      database.close();
+    }
+  });
+
+  it("stops resolving a DISABLED worker identity's existing token — resolve re-checks identity status", () => {
+    // Regression: resolve() used to check only the credential row, so disabling a worker identity
+    // left every minted token live. The credential AND the identity must both be in good standing.
+    const database = new Database(dbPath);
+    try {
+      const service = new WorkerAuthService(database);
+      expect(service.resolve(workerToken)).not.toBeNull();
+
+      const identity = new WorkerIdentityStore(database).get(REFERENCE_WORKER_ID);
+      expect(identity?.status).toBe("enabled");
+      database.connection
+        .prepare("UPDATE worker_identities SET payload_json = ? WHERE id = ?")
+        .run(JSON.stringify({ ...identity, status: "disabled" }), REFERENCE_WORKER_ID);
+
+      expect(service.resolve(workerToken)).toBeNull();
+    } finally {
+      database.close();
+    }
   });
 
   it("still lets the operator issue an envelope — operator retains full authority", async () => {

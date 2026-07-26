@@ -48,13 +48,21 @@ export class WorkerAuthService {
     return { credential_id: credential.id, worker_id: input.worker_id, token };
   }
 
-  /** Resolve a presented token to a worker principal, or null if it is absent/invalid/revoked. */
+  /**
+   * Resolve a presented token to a worker principal, or null if it is absent/invalid/revoked —
+   * or if the worker identity itself is disabled. The credential AND the identity must both be
+   * in good standing: a token must not outlive the identity it authenticates.
+   */
   resolve(token: string | null): WorkerPrincipal | null {
     if (!token) {
       return null;
     }
     const credential = this.credentials.getActiveByTokenHash(hashWorkerToken(token));
     if (!credential) {
+      return null;
+    }
+    const worker = this.workers.get(credential.worker_id);
+    if (worker?.status !== "enabled") {
       return null;
     }
     return { worker_id: credential.worker_id, workspace_id: credential.workspace_id };

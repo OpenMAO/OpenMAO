@@ -6,8 +6,8 @@ actually been accepted versus attempted.
 | Milestone | Status | Accepted at | Notes |
 |---|---|---|---|
 | M1 Crypto core | **ACCEPTED** | 2026-07-26 | 378 tests (baseline 329); 2 audit rounds, 8 findings fixed; driver fixed a quadratic-scan regression |
-| M2 Identity storage | next | — | — |
-| M3 Custody + bootstrap | not started | — | — |
+| M2 Identity storage | **ACCEPTED** | 2026-07-26 | 428 tests; 2 audit rounds, 13 findings incl. a demonstrated P0 signature forgery |
+| M3 Custody + bootstrap | next | — | — |
 | M3a Console extraction | not started | — | — |
 | M4 Atomic cutover | not started | — | — |
 | M5 Signed decisions | not started | — | — |
@@ -112,3 +112,38 @@ Also fixed here: `node_modules` was tracked as an absolute-path symlink into ano
 driver setup error, caused by `.gitignore` listing `node_modules/` with a trailing slash, which does
 not match a symlink of that name. Untracked and properly ignored. The executor's hygiene-script
 workaround was reverted as scope creep once the root cause was gone.
+
+### M2 — ACCEPTED (2026-07-26)
+
+`make check` green, **428 tests** (M1 left it at 378). Six SQL tables, five principal stores,
+`PrincipalAuthService`, and the two bugs closed PR #63 had surfaced. `SCHEMA_VERSION` stays 8 —
+fresh tables in the unconditional DDL need no migration.
+
+Two audit rounds, thirteen findings. The decisive one was a **demonstrated signature forgery**, and
+it is worth recording precisely because a green suite could never have found it:
+
+`createPublicKey()` does not validate that 32 bytes are a usable curve point. The Ed25519 low-order
+identity key (`0x01` + 31 zero bytes) imports happily, and a signature of `R = identity, S = 0`
+**verifies against arbitrary bytes with no private key**. Anyone able to enrol that public key could
+forge a valid signature on any governance decision — the exact attack this milestone exists to stop.
+The auditor found it by probing rather than reading; the driver reproduced it independently before
+acting.
+
+Fixed by rejecting all eight small-order encodings, non-canonical y values, and off-curve points at
+the key store, so an unusable key can never be stored. The eight encodings were *derived*, not
+copied: the executor derived them from the curve equation, the driver's verification re-derived them
+by a different route (projecting through the torsion subgroup) and got an exact match, and removing
+the check fails exactly three tests by name.
+
+Also fixed across the two rounds: a store that accepted plaintext where a hash belonged (now
+constrained at the column, not just the code path); a public-key registry that would accept a
+*private* key; missing composite foreign keys that allowed orphan and cross-workspace authority
+records; a signed revocation that recorded an audit row without actually revoking the key
+(split-brain — revocation looked recorded while the key still resolved active); a signature upsert
+whose race was reachable because the server opens a fresh connection per request under WAL; and
+status parsing that failed *open*, so a typo like "suspended" would authenticate.
+
+Two residual notes accepted knowingly: one test asserts the Node low-order-verify behaviour still
+exists, so it will fail if a future Node hardens it — a canary that breaks on an upstream fix; and
+the end-to-end forgery assertion is indirect (the forged key is refused as unknown because it can no
+longer be enrolled at all). The executor disclosed both rather than papering over them.

@@ -5,3 +5,5 @@
 {"ts":"2026-07-26T17:47:44Z","run_id":"tick2-20260726T171308Z","step":"verify","milestone":"M1","detail":"deterministic PASS (365 vs 329); cross-family audit REJECT with 6 P1; judge upholds reject; decision=continue to fix round"}
 {"ts":"2026-07-26T17:47:59Z","run_id":"tick2-20260726T171308Z","step":"reserve","milestone":"M1-fix","detail":"tick 3/24; M1 code-attempt 2/3; dispatching fix round for SIG-002 findings"}
 {"ts":"2026-07-26T18:35:49Z","run_id":"tick2-20260726T171308Z","step":"accept","milestone":"M1","detail":"ACCEPTED: 378 tests vs 329 baseline; 2 cross-family audit rounds, 8 findings resolved; driver fixed O(n^2) scrubber regression (267KB 4536ms -> 35ms)"}
+{"ts":"2026-07-26T18:42:54Z","run_id":"tick5-20260726T184254Z","step":"reserve","milestone":"M2","detail":"tick 5/24; M2 code-attempt 1/3; identity storage"}
+{"ts":"2026-07-26T20:14:48Z","run_id":"tick5-20260726T184254Z","step":"accept","milestone":"M2","detail":"ACCEPTED: 428 tests; 2 audit rounds; P0 low-order-key signature forgery reproduced and fixed at enrolment"}
