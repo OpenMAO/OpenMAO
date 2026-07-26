@@ -1,0 +1,3 @@
+{ "invocations": {"driver": 0, "k3-worker": 0, "gpt-worker": 0},
+  "iterations": {}, "wall_clock_seconds": 0, "resumes_without_progress": 0,
+  "last_accepted_milestone": null, "tick_count": 0, "budget_caps": {"ticks": 24, "wall_clock_hours": 12} }
