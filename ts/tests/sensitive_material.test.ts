@@ -1,3 +1,5 @@
+import { generateKeyPairSync } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -19,6 +21,18 @@ describe("sensitive material guard", () => {
 
   it("allows ordinary text", () => {
     expect(() => assertNoSensitiveString("a normal issue comment", "body")).not.toThrow();
+  });
+
+  it("flags base64 and base64url PKCS8-encoded Ed25519 key material", () => {
+    // Generated at runtime so this file contains no literal key material.
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const der = privateKey.export({ format: "der", type: "pkcs8" });
+    expect(() => assertNoSensitiveString(Buffer.from(der).toString("base64"), "env")).toThrow(
+      SensitiveMaterialError,
+    );
+    expect(() => assertNoSensitiveString(Buffer.from(der).toString("base64url"), "env")).toThrow(
+      SensitiveMaterialError,
+    );
   });
 
   it("rejects a credential handle that embeds a token, accepts a plain handle", () => {
