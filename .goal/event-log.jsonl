@@ -1,1 +1,3 @@
 {"ts":"2026-07-26T16:13:15Z","run_id":"setup","step":"init","milestone":null,"detail":"goal initialised; baseline captured at 015dd5f"}
+{"ts":"2026-07-26T16:52:08Z","run_id":"tick-20260726T165137Z","step":"reserve","milestone":"M1","detail":"tick 1/24; M1 iteration 1/3; reserved k3-worker dispatch"}
+{"ts":"2026-07-26T17:02:41Z","run_id":"tick-20260726T165137Z","step":"decide","milestone":"M1","detail":"hand-back: executor dispatch blocked by permission classifier (SIG-001); no code produced; tree verified untouched"}
