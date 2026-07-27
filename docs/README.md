@@ -19,6 +19,7 @@ OpenMAO as the organizational substrate for AI-native work.
 | Vocabulary | `docs/VOCABULARY.md` | Canonical product terms and model names. |
 | First release scope | `docs/V0_SCOPE.md` | What the first release ships and what is deferred. |
 | Deployment modes | `docs/DEPLOYMENT_MODES.md` | Native/local, managed cloud, and enterprise cloud modes. |
+| Chain evidence | `docs/CHAIN_EVIDENCE.md` | Exporting the event log and verifying it independently of the database. |
 | Examples | `docs/examples/` | Public walkthroughs for implemented local flows. |
 | Release evidence | `docs/release/` | Public acceptance evidence for release candidates. |
 

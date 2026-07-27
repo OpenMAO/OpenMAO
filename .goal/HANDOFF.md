@@ -1,57 +1,82 @@
-# HANDOFF — Signed Authority
+# HANDOFF — Signed Authority: CLOSEOUT
 
-**Status:** `handed-back: executor_dispatch_blocked`
-**At:** tick 1 of 24, milestone M1 attempt 1 of 3
-**Head:** `89e355c` (goal init) — no product code was written; the tree is exactly as initialised.
+**Status:** `done` — all seven milestones accepted, every done-criterion met as a delta from the
+recorded baseline.
+**Branch:** `claude/signed-authority`
+**Budget used:** 22 of 24 ticks.
 
-## What stopped the loop
+## What the branch does
 
-The K3 executor could not be dispatched. Every invocation carrying the real M1 brief was refused by
-the Claude Code auto-mode permission classifier:
+Replaces a shared bearer token plus a self-asserted `x-openmao-actor` header with per-principal
+cryptographic identity, and makes the decisions that move authority carry Ed25519 signatures —
+implemented on `node:crypto` over the RFC 7515 detached-JWS signing input, with **zero new runtime
+dependencies** and **zero canonical contract changes** (`SCHEMA_VERSION` still 8).
 
-> Permission for this action was denied by the Claude Code auto mode classifier. Reason: Blocked by classifier.
+| Milestone | Delivered |
+| --- | --- |
+| M1 Crypto core | signing + verification, sign-only custody broker, 17 negative vectors |
+| M2 Identity storage | six tables, five stores, principal auth; fixed two bugs a closed PR had surfaced |
+| M3 Custody + bootstrap | custody tiers with enforced modes, root-of-trust ceremony, profile token custody |
+| M3a Console extraction | `server.ts` 2,563 → 1,266 lines; output proven byte-identical |
+| M4 Atomic cutover | HTTP + console + CLI in one wave; legacy token path **deleted** |
+| M5 Signed decisions | approve / reject / ratify / apply / revert signed; null-actor escape deleted |
+| M6 Chain attestations | signed head anchors with read-time signature verification |
+| M7 Docs + evidence | ADR-0020, LIMITATIONS truth-up, remote-access plan, exportable evidence bundle |
 
-The executor bisected this rather than guessing, and the result is a clean controlled comparison:
-the **same** wrapper, cwd, reasoning effort and Node PATH were **allowed** with a trivial prompt and
-**blocked** with the M1 brief. So the trigger is prompt *content*, not command shape. The brief is
-thick with private-key-custody and signature-forgery language — "must never return a private key",
-"PKCS8 private-key shapes", "signature malleability", "key substitution", "scrub perimeter" — which
-out of context resembles credential-handling tooling, even though the work is defensive and the
-broker's whole purpose is that keys *cannot* escape.
+**Tests: 329 → 574.** Every criterion was verified as a *delta* — a check that was already green at
+baseline could never count as done.
 
-**Neither the executor nor the loop attempted to reword the brief to get past the classifier.**
-That would be routing around a denial rather than resolving it. This is recorded as failure
-signature **SIG-001** in `PROGRESS.md`, which blocks re-attempting the same approach on resume.
+## The finding worth carrying forward
 
-## State — nothing to clean up
+Across six milestones, every decisive defect had one shape: **a check that tested the presence of a
+marker rather than the provenance or immutability of the thing.**
 
-- No product files created or modified. `ts/src/security/signing.ts` and `signing-broker.ts` are
-  still absent; no `sign*` test files exist.
-- Working tree carries only this loop's own `.goal/` bookkeeping. No stash was needed — there was no
-  partial work to preserve.
-- Baseline independently re-verified by the executor under Node 25: **39 files / 329 tests green**,
-  matching `baseline.json`. The `> 329` acceptance threshold remains correct.
+- A spread copied an "unforgeable" brand.
+- A stateful getter defeated a frozen-looking object, so the separation-of-duties guard and the signer
+  resolution read different values.
+- Absence-of-a-production-signal stood in for under-test.
+- A status column stood in for a validity window (`valid_from` was never checked).
+- A `signature_id` column stood in for a verified envelope.
+- A comment asserting a check happens stood in for the check.
 
-## What the operator must decide
+**Four of the six were fail-open.** Two were live forgeries: an Ed25519 low-order key that verified
+arbitrary bytes with no private key, and a transplanted signature that let an attacker with database
+write access — and no key — rewrite the chain and have it verify clean.
 
-1. **A Bash permission rule for the K3 wrapper** — `/Users/bilalsyed/.codex/dual-router/k3-codex`
-   (and `k3-claude` if the unsandboxed harness should be available). Without this the loop cannot
-   execute anything, and would burn all 24 ticks failing identically.
+None were caught by a green test suite. All were caught by a cross-family auditor probing rather than
+reading. The rule is recorded once, in `AGENTS.md` Hard Rules: **"Test the thing, not its marker."**
 
-2. **Harness choice**, worth settling at the same time. `k3-codex` sandboxes writes to
-   `[workdir, /tmp, $TMPDIR]`, but this worktree's `node_modules` is a symlink to the main
-   checkout — outside that boundary. Reads work and the baseline suite ran clean, so lint/typecheck/
-   vitest probably don't write there, but if vitest tries to populate `node_modules/.vite` the run
-   fails on a sandbox write. `k3-claude` is unsandboxed and picks up the repo's `AGENTS.md`.
+## What this deliberately does NOT do
 
-3. **Long-running dispatch.** M1 is three modules, two test suites, 17 negative vectors, plus
-   `make check` iteration. It may exceed the 600s foreground Bash ceiling and need backgrounding
-   with polling — worth permitting explicitly rather than discovering mid-run.
+Stated here and in `docs/LIMITATIONS.md` §2, because overclaiming would violate the repo's own
+truth-in-status ADR:
 
-## Resuming
+- Signing is **server-side**. A signature attests "the substrate, holding this principal's key, signed
+  on presentation of this principal's credential" — exactly as strong as the credential, not stronger.
+  Device-held keys would give individual non-repudiation and are not implemented.
+- Direct write access to the database file remains equivalent to root.
+- Chain attestations detect truncation only relative to an attestation that **survives or was
+  exported**.
+- Rotating a signing key **voids the anchors it made** (revocation is untimestamped, so verification
+  fails closed). Re-attest after rotation.
+- The server is **loopback-only**. Remote access is a written plan, not an implementation.
+- Authority is still binary — `AuthorityGrant`, quorum and impact-gated approval are not in scope.
 
-Re-arm the cron routine (it was deleted on hand-back) after granting the permission rule. A fresh
-session reconstitutes from `.goal/` and will resume at M1 attempt 2 — and will read SIG-001 first,
-so it will not retry the blocked approach.
+## Gate evidence
 
-Nothing else about the plan changed. The design, scope guards, and done-criteria all stand.
+`docs/CHAIN_EVIDENCE.md` documents producing and verifying an exportable bundle. Verification needs
+**no database**: it re-checks chain, anchor and signature from the bundle alone, and fails closed —
+truncation reports an anchor failure, a mutated payload a chain failure, both non-zero exit. This is
+what ADR-0008 names as acceptable evidence.
+
+## For the operator
+
+1. Review the PR. It is large by design — the boundary cutover had to be atomic, because a green tree
+   containing a privileged unsigned path beside the new one is the condition this work exists to end.
+2. **`.goal/` is loop machinery committed on this branch by design**, so a resumed session could
+   reconstitute. It is not product code. Squash it out or strip it before merge if you prefer.
+3. This branch predates PR #133 (publishing the ADR series to `main`), so `docs/adr/README.md`
+   carries the older numbering note. It resolves when both land; fixing it here would conflict.
+4. Residual hardening not in scope, recorded in `PROGRESS.md`: failure paths that can delete
+   pre-existing custody artefacts, a symlinked custody directory at creation, the profile unchecked at
+   use time, and a read/check TOCTOU in custody resolution.

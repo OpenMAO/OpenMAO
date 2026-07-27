@@ -9,6 +9,7 @@ later is a recorded reversal, not a silent drift.
 | ADR | Title | Status |
 | --- | --- | --- |
 | [ADR-0013](./ADR-0013-reconcilability-as-a-capability-property.md) | Reconcilability as a declared capability property | Accepted (2026-07-25, rev 1) |
+| [ADR-0020](./ADR-0020-signed-authority.md) | Signed authority — Ed25519 signatures over bound identity | Accepted (2026-07-27) |
 
 ## Numbering
 

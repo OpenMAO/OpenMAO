@@ -164,6 +164,7 @@ npm run cli -- learning proposals
 - [docs/V0_SCOPE.md](docs/V0_SCOPE.md) - what the first release ships and what is deferred.
 - [docs/VOCABULARY.md](docs/VOCABULARY.md) - canonical terms.
 - [docs/DEPLOYMENT_MODES.md](docs/DEPLOYMENT_MODES.md) - local, managed, and enterprise shapes.
+- [docs/CHAIN_EVIDENCE.md](docs/CHAIN_EVIDENCE.md) - exporting the hash-chained event log and verifying it independently of the database.
 - [docs/examples/acme_learning_lab.md](docs/examples/acme_learning_lab.md) - default demo walkthrough.
 - [CONTRIBUTING.md](CONTRIBUTING.md) - contributor workflow.
 - [SECURITY.md](SECURITY.md) - security reporting and expectations.

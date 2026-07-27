@@ -57,6 +57,12 @@ Two anchors are easy to lose under delivery pressure:
 - Do not commit internal communications, private strategy notes, session transcripts, model
   conversations, scratch decisions, or pre-public build-process records.
 - Tests are part of the deliverable.
+- **Test the thing, not its marker.** A check that tests the presence of a marker — a brand
+  property, a status column, a signature reference, a comment asserting a check happens —
+  rather than the provenance or immutability of the thing itself is not a check. Markers can be
+  copied, spread, redefined, or fabricated; provenance cannot. The usual companion failure is a
+  security gate keyed on the *absence* of a signal: refuse unless the condition affirmatively
+  holds, never allow unless it visibly fails.
 - Every state-changing action must pass through services, policy, and event logging.
 - The UI never orchestrates and never writes directly to storage.
 - The world model is a rebuildable projection, not source of truth.

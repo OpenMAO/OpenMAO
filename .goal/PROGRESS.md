@@ -12,7 +12,7 @@ actually been accepted versus attempted.
 | M4 Atomic cutover | **ACCEPTED** | 2026-07-27 | 531 tests; 6 audit findings fixed; spread-forgery closed by driver |
 | M5 Signed decisions | **ACCEPTED** | 2026-07-27 | 551 tests; 2 P0s fixed; null-actor escape deleted, reject() guarded |
 | M6 Chain attestations | **ACCEPTED** | 2026-07-27 | 574 tests; read-time signature verification; transplant hole closed by driver |
-| M7 Docs + evidence | next | — | — |
+| M7 Docs + evidence | **ACCEPTED** | 2026-07-27 | ADR-0020, LIMITATIONS truth-up, remote-access plan, exportable evidence bundle |
 
 ## Failure signatures
 
@@ -451,3 +451,34 @@ code for whoever revisits it.
 The comment was the tell. It described intent, not behaviour, and it was sincerely wrong. Worth
 stating in M7: **a comment asserting a check happens is not a check** — the same family as a marker
 standing in for provenance.
+
+### M7 — ACCEPTED (2026-07-27). All milestones complete.
+
+`make check` green, **574 tests**, typecheck and hygiene in the same run. Docs wave — added no tests,
+dropped none.
+
+`ADR-0020` records the signing decision ADR-0007 left open, including why not Nostr and why not a
+JOSE dependency. `LIMITATIONS.md` §2 is truthful again: it described a shared token and a
+self-asserted actor header that this branch deleted. It now says what identity guarantees and — more
+importantly — what it does not: signing is server-side, so a signature is exactly as strong as the
+credential and not stronger; file write access is still root; attestations detect truncation only
+relative to one that survives or was exported; rotating a key voids its anchors; the server is
+loopback-only; authority is still binary.
+
+The evidence bundle is the deliverable that matters for the gate. `attest`, then export, then verify
+— and verification needs **no database**: it re-checks chain, anchor and signature from the bundle
+alone. Independently confirmed to fail closed, with truncation reported as an anchor failure and a
+mutated payload as a chain failure, each exiting non-zero.
+
+**The one rule went into `AGENTS.md` Hard Rules — "Test the thing, not its marker"** — because that
+is where this repo keeps contributor-facing rules and every coding agent reads it before work. The
+ADR records history; the rule is guidance. It appears exactly once.
+
+Two things the executor was right about, against the brief: there is no `make attest` target (it is
+a CLI command), and an export must slice to exactly the attested range, because the attestation's own
+audit event advances the live head past the pinned one — a naive full export fails its own anchor
+check. Both are now documented.
+
+Known cosmetic gap, deliberately not fixed here: this branch was cut before PR #133 (which publishes
+the full ADR series to `main`), so `docs/adr/README.md` still carries the older numbering note.
+Fixing it here would duplicate #133 and conflict at merge; it resolves when both land.

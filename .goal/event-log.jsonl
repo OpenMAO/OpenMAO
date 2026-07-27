@@ -21,3 +21,5 @@
 {"ts":"2026-07-27T13:00:52Z","run_id":"tick17-20260727T094530Z","step":"accept","milestone":"M5","detail":"ACCEPTED: 551 tests; 2 P0s fixed (mutable minted identity defeating SoD via stateful getter; valid_from never enforced); sign-anything primitive un-exported and decision type bound into signed bytes"}
 {"ts":"2026-07-27T13:01:55Z","run_id":"tick19-20260727T130155Z","step":"reserve","milestone":"M6","detail":"tick 19/24; M6 attempt 1/3; chain attestations + durability test"}
 {"ts":"2026-07-27T15:23:24Z","run_id":"tick20-20260727T142152Z","step":"accept","milestone":"M6","detail":"ACCEPTED: 574 tests; read-time attestation verification wired; driver removed a revoked-key exception that accepted transplanted signatures"}
+{"ts":"2026-07-27T15:24:05Z","run_id":"tick21-20260727T152405Z","step":"reserve","milestone":"M7","detail":"tick 21/24; M7 attempt 1/3; docs + evidence (final milestone)"}
+{"ts":"2026-07-27T15:55:05Z","run_id":"tick21-20260727T152405Z","step":"done","milestone":"M7","detail":"ALL milestones accepted; every done_criterion met as a delta from baseline (574 tests vs 329); opening PR and closing out"}
