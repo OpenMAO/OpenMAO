@@ -286,3 +286,12 @@ wants), and `/ingestion` returns 201 not 200, which was true at baseline too.
 **Carried into the re-audit:** the interrupted run had already flagged a possible TOCTOU window in
 `attestPrincipalKey` — verify-then-write with a gap between the stored-state check and the recording
 transaction. That is the first thing the next audit must probe.
+
+**Audit blocked (2026-07-27):** the M4 cross-family audit was attempted twice and both runs died on
+`API Error: 529 Overloaded` — transient infrastructure, unrelated to the code. Deterministic
+verification passed in full (522 tests, typecheck clean in the same run, deletions grep-verified), so
+M4 is code-complete and durably committed at `d11bfc7`, but **not accepted**: a high-risk milestone
+does not get accepted on deterministic checks alone, and on this branch the audits have caught what
+green suites did not, every single time.
+
+Next tick retries the audit. It must lead with the carried TOCTOU finding in `attestPrincipalKey`.
