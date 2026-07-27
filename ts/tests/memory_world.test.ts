@@ -51,6 +51,7 @@ import {
   WorldModelSnapshotStore,
 } from "../src/persistence/index.js";
 import { WorldModelService, WorldModelServiceError } from "../src/world/index.js";
+import { createSigningOperator } from "./helpers/principals.js";
 
 const fixturePath = new URL("../../tests/fixtures/canonical_v0.json", import.meta.url);
 
@@ -167,7 +168,10 @@ describe("TypeScript memory promotion and world model", () => {
     expect(suspended?.status).toBe("suspended_approval");
     expect(suspended?.suspended_approval_id).toBe(proposed.approval_id);
 
-    new ApprovalService(database).approve(proposed.approval_id, { workspace_id: run.workspace_id });
+    new ApprovalService(database).approve(proposed.approval_id, {
+      workspace_id: run.workspace_id,
+      signer: createSigningOperator(database, run.workspace_id, "Approver").signer,
+    });
     const collective = service.ratifyAndWriteCollective(candidate.id, {
       workspace_id: run.workspace_id,
       approval_id: proposed.approval_id,
@@ -214,7 +218,10 @@ describe("TypeScript memory promotion and world model", () => {
       corroborated_by: "agent_77777777777777777777777777777777",
       run_id: run.id,
     });
-    new ApprovalService(database).approve(proposed.approval_id, { workspace_id: run.workspace_id });
+    new ApprovalService(database).approve(proposed.approval_id, {
+      workspace_id: run.workspace_id,
+      signer: createSigningOperator(database, run.workspace_id, "Approver").signer,
+    });
     const collective = service.ratifyAndWriteCollective(candidate.id, {
       workspace_id: run.workspace_id,
       approval_id: proposed.approval_id,
@@ -441,7 +448,10 @@ describe("TypeScript memory promotion and world model", () => {
     );
     expect(new OrgChangeProposalStore(database).get(proposal.id)?.status).toBe("pending");
 
-    service.approve(approval.id, { workspace_id: workspaceId });
+    service.approve(approval.id, {
+      workspace_id: workspaceId,
+      signer: createSigningOperator(database, workspaceId, "Approver").signer,
+    });
     const approved = new OrgChangeProposalStore(database).get(proposal.id);
     const eventKinds = new EventStore(database)
       .listForWorkspace(workspaceId)
@@ -499,7 +509,10 @@ describe("TypeScript memory promotion and world model", () => {
 
     expect(review.pending_reviews).toEqual(["work_88888888888888888888888888888888"]);
 
-    new ApprovalService(database).approve(approval.id, { workspace_id: run.workspace_id });
+    new ApprovalService(database).approve(approval.id, {
+      workspace_id: run.workspace_id,
+      signer: createSigningOperator(database, run.workspace_id, "Approver").signer,
+    });
     new WorkItemStore(database).setStatus("work_88888888888888888888888888888888", "done");
     new RunStore(database).setStatus(run.id, "completed", {
       active_node: "run_completed",

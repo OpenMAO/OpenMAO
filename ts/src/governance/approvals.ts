@@ -23,6 +23,14 @@ import {
   TraceStore,
 } from "../persistence/index.js";
 import { jsonEqual } from "../persistence/serialization.js";
+import {
+  DECISION_OBJECT_TYPES,
+  type DecisionSigner,
+  decisionSignatureRef,
+  type PrincipalIdentitySnapshot,
+  signApprovalDecision,
+  snapshotPrincipalIdentity,
+} from "./decision-signing.js";
 
 type ApprovalApproveAction = "resume_run" | "apply_without_run";
 type ApprovalRejectAction = "fail_run" | "skip_action" | "no_op";
@@ -128,55 +136,70 @@ export class ApprovalService {
 
   approve(
     approvalId: string,
-    input: { workspace_id: string; actor?: string | null },
+    input: { workspace_id: string; signer: DecisionSigner },
   ): ApprovalRequest {
     return this.database.transaction(() => {
+      // Snapshot the identity ONCE: the separation-of-duties guard and the
+      // stored-signer resolution both act on this snapshot, so they cannot
+      // observe different values even in principle.
+      const identity = snapshotPrincipalIdentity(input.signer.principal);
       const current = this.getForWorkspace(approvalId, input.workspace_id);
-      const alreadyApproved = current.status === "approved";
-      if (alreadyApproved) {
+      if (current.status === "approved") {
+        // The replay contract: an already-approved approval returns as-is,
+        // before the guard and before signing — a second, differently-signed
+        // approve is a no-op producing no new signature row and no new event.
         return current;
       }
-      this.assertNotSelfApproval(current, input.actor ?? null);
+      this.assertNotSelfResolution(current, identity, "approver");
       if (current.on_approve === "apply_without_run" && !this.options.applyWithoutRun) {
         throw new ApprovalApplicationError(
           `approval requires an application handler: ${approvalId}`,
         );
       }
       const approval = this.approvals.resolve(approvalId, "approved");
+      // Sign the decision over the STORED resolved row (its resolved_at, never
+      // a signing-time clock), inside this transaction: state change, signature
+      // row, and event commit together or roll back together.
+      const decision = signApprovalDecision({
+        database: this.database,
+        workspaceId: approval.workspace_id,
+        signer: input.signer,
+        identity,
+        objectType: DECISION_OBJECT_TYPES.approval_approve,
+        approval,
+      });
       const approvedEvent = this.events.append({
         workspace_id: approval.workspace_id,
         run_id: approval.run_id,
         kind: "approval.approved",
-        actor: input.actor ?? "approval_service",
+        actor: identity.actor,
         payload: EventPayloadSchema.parse({
-          data: { approval_request: approval },
+          data: { approval_request: approval, decision_signature: decisionSignatureRef(decision) },
           refs: [approval.id],
         }),
         idempotency_key: `${approval.id}:approved`,
       });
 
+      // Freshly approved above (the replay returned already), so resume a
+      // suspended run; any other state is left as-is.
       if (approval.run_id && approval.on_approve === "resume_run") {
         const run = this.runs.get(approval.run_id);
         if (!run) {
           throw new Error(`run not found: ${approval.run_id}`);
         }
-        if (!alreadyApproved || run.status === "suspended_approval") {
+        if (run.status === "suspended_approval") {
           const resumed = this.runs.setStatus(approval.run_id, "running", {
             active_node: "approval_resolved",
           });
           this.traceAndCheckpoint(resumed, "approval_resolved", [approvedEvent.id]);
-        } else if (run.status === "running" && run.active_node === "approval_resolved") {
-          this.traceAndCheckpoint(run, "approval_resolved", [approvedEvent.id]);
         }
       } else if (approval.on_approve === "apply_without_run") {
-        if (!alreadyApproved) {
-          this.options.applyWithoutRun?.(approval);
-        }
+        this.options.applyWithoutRun?.(approval);
         this.events.append({
           workspace_id: approval.workspace_id,
           run_id: approval.run_id,
           kind: "approval.applied",
-          actor: input.actor ?? "approval_service",
+          actor: identity.actor,
           payload: EventPayloadSchema.parse({
             data: { approval_request: approval },
             refs: [approval.id],
@@ -190,24 +213,37 @@ export class ApprovalService {
 
   reject(
     approvalId: string,
-    input: { workspace_id: string; actor?: string | null },
+    input: { workspace_id: string; signer: DecisionSigner },
   ): ApprovalRequest {
     return this.database.transaction(() => {
+      const identity = snapshotPrincipalIdentity(input.signer.principal);
       const current = this.getForWorkspace(approvalId, input.workspace_id);
-      const alreadyRejected = current.status === "rejected";
-      const approval = this.approvals.resolve(approvalId, "rejected");
-      if (alreadyRejected) {
-        return approval;
+      if (current.status === "rejected") {
+        // Symmetric with approve's replay contract: an already-rejected
+        // approval returns as-is, before the guard and before signing.
+        return current;
       }
+      // The guard approve() always had and reject() lacked: a requester must
+      // not resolve their own request in EITHER direction.
+      this.assertNotSelfResolution(current, identity, "rejecter");
+      const approval = this.approvals.resolve(approvalId, "rejected");
+      const decision = signApprovalDecision({
+        database: this.database,
+        workspaceId: approval.workspace_id,
+        signer: input.signer,
+        identity,
+        objectType: DECISION_OBJECT_TYPES.approval_reject,
+        approval,
+      });
       this.rejectTarget(approval);
 
       const rejectedEvent = this.events.append({
         workspace_id: approval.workspace_id,
         run_id: approval.run_id,
         kind: "approval.rejected",
-        actor: input.actor ?? "approval_service",
+        actor: identity.actor,
         payload: EventPayloadSchema.parse({
-          data: { approval_request: approval },
+          data: { approval_request: approval, decision_signature: decisionSignatureRef(decision) },
           refs: [approval.id],
         }),
         idempotency_key: `${approval.id}:rejected`,
@@ -220,7 +256,7 @@ export class ApprovalService {
           workspace_id: approval.workspace_id,
           run_id: approval.run_id,
           kind: "run.failed",
-          actor: input.actor ?? "approval_service",
+          actor: identity.actor,
           payload: EventPayloadSchema.parse({
             data: { approval_request: approval, run: failed },
             refs: [approval.id, failed.id],
@@ -236,7 +272,7 @@ export class ApprovalService {
           workspace_id: approval.workspace_id,
           run_id: approval.run_id,
           kind: "run.resumed",
-          actor: input.actor ?? "approval_service",
+          actor: identity.actor,
           payload: EventPayloadSchema.parse({
             data: {
               approval_request: approval,
@@ -312,23 +348,20 @@ export class ApprovalService {
     }
   }
 
-  private assertNotSelfApproval(approval: ApprovalRequest, actor: string | null): void {
-    if (actor === null) {
-      // Unattributed: the operator token authorizes the call. Attribution becomes mandatory
-      // and verified once identity is bound at the HTTP boundary — see issue #92.
-      return;
-    }
-    const approver = actor.trim();
-    if (approver.length === 0) {
-      // A supplied-but-blank actor is malformed; it must not pass as "no actor".
-      throw new SelfApprovalError(
-        `approver identity must not be blank for approval ${approval.id}`,
-      );
-    }
-    if (approver === approval.requested_by.trim()) {
-      throw new SelfApprovalError(
-        `approver must differ from requester for approval ${approval.id}`,
-      );
+  /**
+   * Separation of duties over STABLE PRINCIPAL IDS, never key ids (rotation
+   * must not let one human become two) and never nullable: the resolver is an
+   * AuthenticatedPrincipal, so the unattributed path issue #92 tracked is
+   * unrepresentable — a caller cannot pass `null` or a bare string at all,
+   * and a hand-built or spread-copied lookalike is refused at runtime.
+   */
+  private assertNotSelfResolution(
+    approval: ApprovalRequest,
+    identity: PrincipalIdentitySnapshot,
+    role: "approver" | "rejecter",
+  ): void {
+    if (approval.requested_by.trim() === identity.principal_id) {
+      throw new SelfApprovalError(`${role} must differ from requester for approval ${approval.id}`);
     }
   }
 

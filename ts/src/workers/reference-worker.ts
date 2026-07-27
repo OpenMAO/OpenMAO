@@ -1,6 +1,6 @@
 import type { CapabilityInvocation } from "../capabilities/index.js";
 import { CapabilityCallSchema, CapabilitySchema } from "../contracts/index.js";
-import { ApprovalService } from "../governance/index.js";
+import { ApprovalService, type DecisionSigner } from "../governance/index.js";
 import type { Database } from "../persistence/index.js";
 import { createLocalCapabilityRegistry } from "../runtime/capabilities.js";
 import { OpenMaoLocalClient } from "../sdk/index.js";
@@ -62,8 +62,9 @@ export async function runReferenceWorkerDemo(
 
 export async function approveReferenceWorkerDemo(
   database: Database,
-  principal: AuthenticatedPrincipal,
+  signer: DecisionSigner,
 ): Promise<ReferenceWorkerDemoResult> {
+  const principal = signer.principal;
   const started = await runReferenceWorkerDemo(database, principal);
   if (started.capability_result_id) {
     return started;
@@ -74,7 +75,7 @@ export async function approveReferenceWorkerDemo(
     workspace_id: WORKSPACE_ID,
     // The approver of record is the authenticated operator — the demo mock is
     // not an identity, and a hardcoded one would falsify the audit trail.
-    actor: principal.actor,
+    signer,
   });
   const context = prepareReferenceWorkerDemo(database, principal);
   const invocation = await context.registry.resumeApprovedCall(approvalId, {

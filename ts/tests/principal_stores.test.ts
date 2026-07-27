@@ -475,6 +475,7 @@ describe("Ed25519 key enrolment boundary", () => {
           ownerPrincipalId: principal.id,
           enrolled: true,
           status: "active",
+          validFrom: "2026-01-01T00:00:00Z",
           validUntil: null,
           conditions: [],
           dev_bootstrap: false,

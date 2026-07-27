@@ -69,6 +69,7 @@ function verificationKey(overrides: Partial<VerificationKey> = {}): Verification
     ownerPrincipalId: PRINCIPAL_A,
     enrolled: true,
     status: "active",
+    validFrom: "2026-01-01T00:00:00.000Z",
     validUntil: null,
     conditions: [],
     dev_bootstrap: false,

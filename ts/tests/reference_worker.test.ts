@@ -18,7 +18,7 @@ import {
   runReferenceWorkerDemo,
 } from "../src/workers/index.js";
 import { WorldModelService } from "../src/world/index.js";
-import { authenticateOperatorPrincipal } from "./helpers/principals.js";
+import { createSigningOperator } from "./helpers/principals.js";
 
 let tmpRoot: string;
 let database: Database;
@@ -38,12 +38,13 @@ describe("reference external worker", () => {
   it("suspends for approval, resumes idempotently, and projects into the world model", async () => {
     new SpineService(database).initDemoWorkspace();
     // The demo records under a genuinely authenticated operator — the demo
-    // mock is not an identity and never appears as an actor.
-    const operator = authenticateOperatorPrincipal(database, WORKSPACE_ID, "Demo Operator");
-    const suspended = await runReferenceWorkerDemo(database, operator);
-    const replayedSuspension = await runReferenceWorkerDemo(database, operator);
-    const approved = await approveReferenceWorkerDemo(database, operator);
-    const replayedApproval = await approveReferenceWorkerDemo(database, operator);
+    // mock is not an identity and never appears as an actor. The approval is
+    // signed by that operator's enrolled key.
+    const operator = createSigningOperator(database, WORKSPACE_ID, "Demo Operator");
+    const suspended = await runReferenceWorkerDemo(database, operator.principal);
+    const replayedSuspension = await runReferenceWorkerDemo(database, operator.principal);
+    const approved = await approveReferenceWorkerDemo(database, operator.signer);
+    const replayedApproval = await approveReferenceWorkerDemo(database, operator.signer);
     const events = new EventStore(database).listForWorkspace(approved.workspace_id);
     const work = new WorkItemStore(database).get(REFERENCE_WORK_ID);
     const world = new WorldModelService(database).rebuild(approved.workspace_id, REFERENCE_RUN_ID);
@@ -90,7 +91,7 @@ describe("reference external worker", () => {
         event.kind === "approval.approved" &&
         JSON.stringify(event.payload).includes(REFERENCE_CAPABILITY_APPROVAL_ID),
     );
-    expect(approvalEvent?.actor).toBe(operator.principal_id);
+    expect(approvalEvent?.actor).toBe(operator.principal.principal_id);
     expect(events.every((event) => event.actor !== "reference_worker_demo")).toBe(true);
   });
 });

@@ -35,7 +35,7 @@ import {
   WorkItemSchema,
   WorkspaceSchema,
 } from "../contracts/index.js";
-import { ApprovalService, GovernanceService } from "../governance/index.js";
+import { ApprovalService, type DecisionSigner, GovernanceService } from "../governance/index.js";
 import { PromotionService } from "../memory/index.js";
 import { OrgRegistry } from "../org/index.js";
 import {
@@ -218,7 +218,7 @@ export class SpineService {
     return await this.runUntilPromotionApproval(run, registry);
   }
 
-  async resumeRun(runId: string, input: { actor?: string | null } = {}): Promise<SpineRunResult> {
+  async resumeRun(runId: string, input: { signer: DecisionSigner }): Promise<SpineRunResult> {
     if (runId !== RUN_ID) {
       throw new SpineServiceError(`unknown v0 demo run: ${runId}`);
     }
@@ -272,7 +272,7 @@ export class SpineService {
     if (suspendedApproval.payload.target_type === "capability_call") {
       if (suspendedApproval.status === "approved") {
         return await this.resumeApprovedCapability(suspendedApproval.id, {
-          actor: input.actor ?? null,
+          signer: input.signer,
           workspace_id: run.workspace_id,
         });
       }
@@ -307,7 +307,7 @@ export class SpineService {
 
   async resumeApprovedCapability(
     approvalId: string,
-    input: { actor?: string | null; workspace_id: string },
+    input: { signer: DecisionSigner; workspace_id: string },
   ): Promise<SpineRunResult> {
     let approval = new ApprovalService(this.database).approvals.get(approvalId);
     if (!approval) {
@@ -330,7 +330,7 @@ export class SpineService {
     if (approval.status === "pending") {
       approval = new ApprovalService(this.database).approve(approval.id, {
         workspace_id: approval.workspace_id,
-        actor: input.actor ?? null,
+        signer: input.signer,
       });
     }
     if (approval.status === "rejected") {
@@ -381,7 +381,7 @@ export class SpineService {
     return await this.runUntilPromotionApproval(run, registry, "capability_called");
   }
 
-  resumeDemo(approvalId?: string | null, input: { actor?: string | null } = {}): SpineRunResult {
+  resumeDemo(approvalId: string | null, input: { signer: DecisionSigner }): SpineRunResult {
     let run = this.runs.get(RUN_ID);
     if (!run) {
       throw new SpineServiceError("demo run has not been started");
@@ -408,7 +408,7 @@ export class SpineService {
     if (run.status === "suspended_approval") {
       approval = new ApprovalService(this.database).approve(resolvedApprovalId, {
         workspace_id: WORKSPACE_ID,
-        actor: input.actor ?? null,
+        signer: input.signer,
       });
       run = this.runs.get(RUN_ID);
       if (!run) {
@@ -440,7 +440,7 @@ export class SpineService {
     return { ...this.resultFromRun(completed), collective_memory_id: collective.id };
   }
 
-  async denyDemo(input: { actor?: string | null } = {}): Promise<DenyDemoResult> {
+  async denyDemo(input: { signer: DecisionSigner }): Promise<DenyDemoResult> {
     const registry = this.persistDefaultOrg();
     const approvalService = new ApprovalService(this.database);
 
@@ -469,7 +469,7 @@ export class SpineService {
     if (run.status === "suspended_approval") {
       approval = approvalService.reject(PROMOTION_APPROVAL_ID, {
         workspace_id: WORKSPACE_ID,
-        actor: input.actor ?? null,
+        signer: input.signer,
       });
       run = this.runs.get(RUN_ID) ?? run;
     } else if (approval.status !== "rejected") {

@@ -34,6 +34,7 @@ import {
   WorkspaceStore,
 } from "../src/persistence/index.js";
 import { createApprovalServiceWithApplications } from "../src/runtime/approvals.js";
+import { createSigningOperator } from "./helpers/principals.js";
 
 const fixturePath = new URL("../../tests/fixtures/canonical_v0.json", import.meta.url);
 const ORG_ID = `org_${"a".repeat(32)}`;
@@ -135,13 +136,14 @@ describe("M4 earned autonomy", () => {
     expect(proposed.proposed_level).toBe("supervised");
     expect(orgLevel()).toBe("advisory");
 
+    const operator = createSigningOperator(database, workspaceId, "Operator");
     const ratified = service.ratifyWidening(proposed.id, {
       workspace_id: workspaceId,
-      actor: "operator",
+      signer: operator.signer,
     });
 
     expect(ratified.status).toBe("ratified");
-    expect(ratified.ratified_by).toBe("operator");
+    expect(ratified.ratified_by).toBe(operator.principal.principal_id);
     expect(orgLevel()).toBe("supervised");
     expect(eventKinds(workspaceId)).toEqual(
       expect.arrayContaining(["autonomy.widening_proposed", "autonomy.widened"]),
@@ -183,13 +185,14 @@ describe("M4 earned autonomy", () => {
       ],
       patch_json: { recommendation: "Review the approval policy." },
     });
+    const operator = createSigningOperator(database, workspaceId, "Operator");
     createApprovalServiceWithApplications(database).approve(approval_id, {
       workspace_id: workspaceId,
-      actor: "human",
+      signer: operator.signer,
     });
     const acknowledged = orgChanges.markApplied(proposal.id, {
       workspace_id: workspaceId,
-      actor: "operator",
+      signer: operator.signer,
     });
     expect(acknowledged.status).toBe("acknowledged");
 
@@ -267,35 +270,52 @@ describe("M4 earned autonomy", () => {
     seedOrg(workspaceId, "advisory");
     seedVerifiedApplications(workspaceId, 1);
     const service = new AutonomyService(database, { minTrackRecord: 1 });
+    const ratifier = createSigningOperator(database, workspaceId, "Ratifier");
     const proposed = service.proposeWidening({
       workspace_id: workspaceId,
       org_id: ORG_ID,
-      proposed_by: "agent_scribe",
+      // Padded/whitespace variants of the proposer must not slip past the separation check.
+      proposed_by: `  ${ratifier.principal.principal_id}  `,
       rationale: "Self-serving.",
       evidence,
     });
 
-    // Padded/whitespace variants of the proposer must not slip past the separation check.
     expect(() =>
-      service.ratifyWidening(proposed.id, { workspace_id: workspaceId, actor: "  agent_scribe  " }),
+      service.ratifyWidening(proposed.id, {
+        workspace_id: workspaceId,
+        signer: ratifier.signer,
+      }),
     ).toThrow(AutonomyRatificationError);
     expect(orgLevel()).toBe("advisory");
   });
 
-  it("rejects a blank ratifier identity", async () => {
+  it("rejects ratification of a case whose stored proposer identity is blank", async () => {
     const workspaceId = await seedWorkspace();
     seedOrg(workspaceId, "advisory");
     seedVerifiedApplications(workspaceId, 1);
     const service = new AutonomyService(database, { minTrackRecord: 1 });
-    const proposed = service.proposeWidening({
-      workspace_id: workspaceId,
-      org_id: ORG_ID,
-      proposed_by: "learning_service",
-      rationale: "Blank ratifier.",
-      evidence,
-    });
+    // Forge a case straight into the store with a blank proposer — proposeWidening normalizes
+    // and refuses this at the boundary, so only a direct store write can produce it.
+    const forged = new AutonomyCaseStore(database).save(
+      AutonomyCaseSchema.parse({
+        id: newId("autonomy"),
+        workspace_id: workspaceId,
+        org_id: ORG_ID,
+        current_level: "advisory",
+        proposed_level: "supervised",
+        evidence,
+        rationale: "Blank proposer.",
+        status: "proposed",
+        proposed_by: "   ",
+        created_at: utcNow(),
+      }),
+    );
+
     expect(() =>
-      service.ratifyWidening(proposed.id, { workspace_id: workspaceId, actor: "   " }),
+      service.ratifyWidening(forged.id, {
+        workspace_id: workspaceId,
+        signer: createSigningOperator(database, workspaceId, "Ratifier").signer,
+      }),
     ).toThrow(AutonomyRatificationError);
   });
 
@@ -322,7 +342,7 @@ describe("M4 earned autonomy", () => {
     expect(() =>
       new AutonomyService(database, { minTrackRecord: 1 }).ratifyWidening(forged.id, {
         workspace_id: workspaceId,
-        actor: "operator",
+        signer: createSigningOperator(database, workspaceId, "Operator").signer,
       }),
     ).toThrow(AutonomyStepError);
     expect(orgLevel()).toBe("advisory");
@@ -344,7 +364,10 @@ describe("M4 earned autonomy", () => {
     expect(() =>
       new AutonomyService(database, { minTrackRecord: 1, maxLevel: "advisory" }).ratifyWidening(
         proposed.id,
-        { workspace_id: workspaceId, actor: "operator" },
+        {
+          workspace_id: workspaceId,
+          signer: createSigningOperator(database, workspaceId, "Operator").signer,
+        },
       ),
     ).toThrow(AutonomyCapError);
     expect(orgLevel()).toBe("advisory");
@@ -365,7 +388,7 @@ describe("M4 earned autonomy", () => {
     expect(() =>
       new AutonomyService(database, { minTrackRecord: 5 }).ratifyWidening(proposed.id, {
         workspace_id: workspaceId,
-        actor: "operator",
+        signer: createSigningOperator(database, workspaceId, "Operator").signer,
       }),
     ).toThrow(InsufficientTrackRecordError);
     expect(orgLevel()).toBe("advisory");
@@ -418,7 +441,10 @@ describe("M4 earned autonomy", () => {
     // The case proposed supervised → bounded, but the only valid widening from the live level
     // (advisory) is → supervised, so ratification is rejected.
     expect(() =>
-      service.ratifyWidening(proposed.id, { workspace_id: workspaceId, actor: "operator" }),
+      service.ratifyWidening(proposed.id, {
+        workspace_id: workspaceId,
+        signer: createSigningOperator(database, workspaceId, "Operator").signer,
+      }),
     ).toThrow(AutonomyServiceError);
   });
 

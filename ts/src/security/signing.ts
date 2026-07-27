@@ -39,6 +39,20 @@ import { productionSignals } from "./key-custody.js";
 
 export const SIGNED_OBJECT_MEDIA_TYPES = {
   governance_decision: "application/vnd.openmao.governance-decision.v1+json",
+  // One decision-specific media type per authority-moving transition: the
+  // object type is bound INTO the signed bytes through `typ`, so a signature
+  // cannot be reclassified across decisions without invalidating it. The
+  // shared `governance_decision` class remains for non-transition uses.
+  "governance_decision.approval_approve":
+    "application/vnd.openmao.governance-decision.approval-approve.v1+json",
+  "governance_decision.approval_reject":
+    "application/vnd.openmao.governance-decision.approval-reject.v1+json",
+  "governance_decision.autonomy_ratify":
+    "application/vnd.openmao.governance-decision.autonomy-ratify.v1+json",
+  "governance_decision.org_change_apply":
+    "application/vnd.openmao.governance-decision.org-change-apply.v1+json",
+  "governance_decision.org_change_revert":
+    "application/vnd.openmao.governance-decision.org-change-revert.v1+json",
   principal_enrolment: "application/vnd.openmao.principal-enrolment.v1+json",
   revocation: "application/vnd.openmao.revocation.v1+json",
   chain_attestation: "application/vnd.openmao.chain-attestation.v1+json",
@@ -198,6 +212,8 @@ export type VerificationKey = {
   ownerPrincipalId: string;
   enrolled: boolean;
   status: "active" | "revoked";
+  /** ISO instant from which the key confers authority (stored-row lower bound). */
+  validFrom: string;
   /** ISO instant after which the key confers no authority, or null. */
   validUntil: string | null;
   conditions: readonly EnrolmentCondition[];
@@ -261,6 +277,7 @@ export type VerifyFailureReason =
   | "key_not_enrolled"
   | "key_revoked"
   | "key_expired"
+  | "key_not_yet_valid"
   | "condition_class_restricted"
   | "condition_workspace_mismatch"
   | "condition_unrecognized"
@@ -426,6 +443,12 @@ function verifyObjectInner(input: {
     return fail("key_revoked", key.keyId);
   }
   // ISO-8601 UTC instants order lexicographically; `now` is caller-injected.
+  // The validity window has TWO stored-row bounds: a key must not confer
+  // authority before its valid_from (a future-dated key signs nothing today)
+  // nor after its valid_until. Status alone is not the window.
+  if (input.now < key.validFrom) {
+    return fail("key_not_yet_valid", key.keyId);
+  }
   if (key.validUntil !== null && input.now > key.validUntil) {
     return fail("key_expired", key.keyId);
   }
@@ -596,6 +619,7 @@ export function loadVerificationKeys(database: Database, workspaceId: string): V
           // "active" confers no authority when its principal is disabled, so the
           // verifier sees such a key as revoked — never as active.
           status: principal.status === "active" ? key.status : "revoked",
+          validFrom: key.valid_from,
           validUntil: key.valid_until,
           conditions: [],
           dev_bootstrap: principal.dev_bootstrap,

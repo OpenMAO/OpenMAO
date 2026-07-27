@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { ChiefOfStaffService } from "./chief_of_staff/index.js";
 import { utcNow, WorkspaceSchema } from "./contracts/index.js";
 import { DiagnosisService } from "./diagnosis/index.js";
-import { ApprovalService, NarrowingService } from "./governance/index.js";
+import { ApprovalService, type DecisionSigner, NarrowingService } from "./governance/index.js";
 import { ConsoleTransport, HeartbeatService } from "./heartbeat/index.js";
 import { IngestionService } from "./ingestion/index.js";
 import { LearningService } from "./learning/index.js";
@@ -301,6 +301,33 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       }
       return cachedPrincipal;
     };
+    // The signing counterpart of cliPrincipal: authority-moving decisions (approvals,
+    // org-change apply/revert) need the operator's signing custody, not just identity.
+    // Resolved lazily so read-only commands never touch the key store.
+    let cachedSigner: DecisionSigner | null = null;
+    const cliSigner = (): DecisionSigner => {
+      if (!cachedSigner) {
+        // Identity FIRST: resolving the principal runs the root-of-trust
+        // ceremony when no usable profile exists, and the ceremony is what
+        // writes the custody key file the signer then resolves.
+        const principal = cliPrincipal();
+        const custody = resolveCustody({
+          env: process.env,
+          keysRoot: cliKeysRoot(database),
+          database,
+          workspaceId: selectedWorkspace,
+        });
+        if (!custody.broker) {
+          throw new Error("no signing key custody available for the operator key");
+        }
+        cachedSigner = {
+          principal,
+          broker: custody.broker,
+          handle: custody.handle,
+        };
+      }
+      return cachedSigner;
+    };
 
     if (command === "help" || command === "--help" || command === "-h") {
       write(
@@ -322,20 +349,20 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       printJson(
         write,
         spine.resumeDemo(positions[1] ?? PROMOTION_APPROVAL_ID, {
-          actor: cliPrincipal().actor,
+          signer: cliSigner(),
         }),
       );
       return 0;
     }
     if (command === "demo-deny") {
       requireDefaultWorkspace(selectedWorkspace);
-      printJson(write, await spine.denyDemo({ actor: cliPrincipal().actor }));
+      printJson(write, await spine.denyDemo({ signer: cliSigner() }));
       return 0;
     }
     if (command === "run" && subcommand === "resume") {
       requireDefaultWorkspace(selectedWorkspace);
       const runId = positions[2] ?? RUN_ID;
-      printJson(write, await spine.resumeRun(runId, { actor: cliPrincipal().actor }));
+      printJson(write, await spine.resumeRun(runId, { signer: cliSigner() }));
       return 0;
     }
     if (command === "approvals" && subcommand === "list") {
@@ -359,7 +386,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
     if (command === "worker" && subcommand === "demo-approve") {
       requireDefaultWorkspace(selectedWorkspace);
       spine.initDemoWorkspace();
-      printJson(write, await approveReferenceWorkerDemo(database, cliPrincipal()));
+      printJson(write, await approveReferenceWorkerDemo(database, cliSigner()));
       return 0;
     }
     if (command === "workers" && subcommand === "register") {
@@ -635,7 +662,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         write,
         new OrgChangeService(database).markApplied(proposalId, {
           workspace_id: selectedWorkspace,
-          actor: cliPrincipal().actor,
+          signer: cliSigner(),
         }),
       );
       return 0;
@@ -667,7 +694,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         write,
         new OrgChangeService(database).revertApplication(application.id, {
           workspace_id: selectedWorkspace,
-          actor: cliPrincipal().actor,
+          signer: cliSigner(),
         }),
       );
       return 0;
@@ -854,7 +881,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         printJson(
           write,
           await spine.resumeApprovedCapability(approvalId, {
-            actor: cliPrincipal().actor,
+            signer: cliSigner(),
             workspace_id: selectedWorkspace,
           }),
         );
@@ -862,11 +889,11 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         approval?.payload.target_type === "capability_call" &&
         approval.run_id === REFERENCE_RUN_ID
       ) {
-        printJson(write, await approveReferenceWorkerDemo(database, cliPrincipal()));
+        printJson(write, await approveReferenceWorkerDemo(database, cliSigner()));
       } else if (approval?.payload.target_type === "capability_call") {
         new ApprovalService(database).approve(approvalId, {
           workspace_id: selectedWorkspace,
-          actor: cliPrincipal().actor,
+          signer: cliSigner(),
         });
         printJson(
           write,
@@ -876,13 +903,13 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         );
       } else if (approvalId === PROMOTION_APPROVAL_ID) {
         requireDefaultWorkspace(selectedWorkspace);
-        printJson(write, spine.resumeDemo(approvalId, { actor: cliPrincipal().actor }));
+        printJson(write, spine.resumeDemo(approvalId, { signer: cliSigner() }));
       } else {
         printJson(
           write,
           createApprovalServiceWithApplications(database).approve(approvalId, {
             workspace_id: selectedWorkspace,
-            actor: cliPrincipal().actor,
+            signer: cliSigner(),
           }),
         );
       }
@@ -900,7 +927,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       }
       const rejected = approvalService.reject(approvalId, {
         workspace_id: selectedWorkspace,
-        actor: cliPrincipal().actor,
+        signer: cliSigner(),
       });
       printJson(
         write,

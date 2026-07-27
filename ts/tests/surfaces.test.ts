@@ -25,7 +25,11 @@ import {
   REFERENCE_RUN_ID,
   REFERENCE_WORKER_ID,
 } from "../src/workers/index.js";
-import { principalHeaders, seedPrincipalAtPath } from "./helpers/principals.js";
+import {
+  principalHeaders,
+  seedPrincipalAtPath,
+  seedSigningPrincipalAtPath,
+} from "./helpers/principals.js";
 
 let tmpRoot: string;
 let dbPath: string;
@@ -571,7 +575,7 @@ describe("TypeScript operator surfaces", () => {
   });
 
   it("serves demo, approvals, world, and console over HTTP", async () => {
-    const principal = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
+    const principal = seedSigningPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
     const operatorHeaders = principalHeaders(principal.token);
     const server = createServer({ dbPath });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -871,7 +875,7 @@ describe("TypeScript operator surfaces", () => {
     // separation of duties is now between two real principals: the requester
     // approving their own request is a 409, a second principal's token is a 200.
     const requester = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Requesting Operator");
-    const approver = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Approving Operator");
+    const approver = seedSigningPrincipalAtPath(dbPath, WORKSPACE_ID, "Approving Operator");
     const seeded = (() => {
       const database = new Database(dbPath);
       database.initialize();
@@ -1074,7 +1078,7 @@ describe("TypeScript operator surfaces", () => {
   });
 
   it("serves learning scans and proposal review over HTTP", async () => {
-    const principal = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
+    const principal = seedSigningPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
     const operatorHeaders = principalHeaders(principal.token);
     const server = createServer({ dbPath });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -1146,7 +1150,7 @@ describe("TypeScript operator surfaces", () => {
   });
 
   it("serves the reference worker gateway flow over HTTP", async () => {
-    const principal = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
+    const principal = seedSigningPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
     const operatorHeaders = principalHeaders(principal.token);
     const server = createServer({ dbPath });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -1211,7 +1215,7 @@ describe("TypeScript operator surfaces", () => {
   });
 
   it("materializes rejected reference-worker capability results over HTTP", async () => {
-    const principal = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
+    const principal = seedSigningPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
     const operatorHeaders = principalHeaders(principal.token);
     const server = createServer({ dbPath });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -1255,7 +1259,7 @@ describe("TypeScript operator surfaces", () => {
     // the workspace, so the ambiguity cannot occur: unqualified requests act
     // in the credential's workspace, and a conflicting explicit selection is
     // a 400, never silent cross-workspace action.
-    const principal = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
+    const principal = seedSigningPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
     const operatorHeaders = principalHeaders(principal.token);
     const server = createServer({ dbPath });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

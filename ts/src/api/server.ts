@@ -3,6 +3,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { dirname, join } from "node:path";
 
 import { CapabilityRegistryError } from "../capabilities/index.js";
 import { ChiefOfStaffService } from "../chief_of_staff/index.js";
@@ -13,7 +14,7 @@ import {
   type ResourceGrants,
   utcNow,
 } from "../contracts/index.js";
-import { ApprovalService, SelfApprovalError } from "../governance/index.js";
+import { ApprovalService, type DecisionSigner, SelfApprovalError } from "../governance/index.js";
 import { IngestionService } from "../ingestion/index.js";
 import { LearningService } from "../learning/index.js";
 import { MemoryRetrievalService, PromotionService } from "../memory/index.js";
@@ -51,6 +52,7 @@ import {
   type AuthenticatedPrincipal,
   enrichPrincipalIdentity,
 } from "../security/authenticated-principal.js";
+import { resolveCustody } from "../security/key-custody.js";
 import { PrincipalAuthService } from "../security/principal-auth.js";
 import { SensitiveMaterialError, safeErrorMessage } from "../security/sensitive-material.js";
 import { WorkerAuthService } from "../security/worker-auth.js";
@@ -305,6 +307,26 @@ function operatorOf(context: RequestContext): AuthenticatedPrincipal {
   return context.authenticated;
 }
 
+/**
+ * The signing identity for an authority-moving route: the authenticated
+ * operator principal plus the server-side custody that holds its key. The
+ * server signs decisions with the key material it holds (the custody matrix's
+ * file/env tiers); a deployment with no resolvable custody for the workspace
+ * fails closed — the decision is refused, never recorded unsigned.
+ */
+function signerFor(context: RequestContext, database: Database): DecisionSigner {
+  const custody = resolveCustody({
+    env: process.env,
+    keysRoot: process.env.OPENMAO_KEYS_DIR ?? join(dirname(database.path), "keys"),
+    database,
+    workspaceId: context.workspaceId,
+  });
+  if (!custody.broker) {
+    throw new Error("no signing key custody available for the operator key");
+  }
+  return { principal: operatorOf(context), broker: custody.broker, handle: custody.handle };
+}
+
 function ensureDefaultWorkspace(
   spine: SpineService,
   database: Database,
@@ -425,7 +447,11 @@ export function createServer(options: ServerOptions = {}) {
         if (!requireDemoWorkspace(response, context.workspaceId)) {
           return;
         }
-        sendJson(response, 200, spine.resumeDemo(PROMOTION_APPROVAL_ID, { actor: context.actor }));
+        sendJson(
+          response,
+          200,
+          spine.resumeDemo(PROMOTION_APPROVAL_ID, { signer: signerFor(context, database) }),
+        );
         return;
       }
       if (request.method === "GET" && url.pathname === "/workspaces") {
@@ -605,7 +631,11 @@ export function createServer(options: ServerOptions = {}) {
         if (!requireDemoWorkspace(response, context.workspaceId)) {
           return;
         }
-        sendJson(response, 200, await approveReferenceWorkerDemo(database, operatorOf(context)));
+        sendJson(
+          response,
+          200,
+          await approveReferenceWorkerDemo(database, signerFor(context, database)),
+        );
         return;
       }
       if (request.method === "GET" && url.pathname === "/ingestion") {
@@ -710,7 +740,9 @@ export function createServer(options: ServerOptions = {}) {
         sendJson(
           response,
           200,
-          await spine.resumeRun(approvalRoute.runResumeId, { actor: context.actor }),
+          await spine.resumeRun(approvalRoute.runResumeId, {
+            signer: signerFor(context, database),
+          }),
         );
         return;
       }
@@ -1049,7 +1081,7 @@ export function createServer(options: ServerOptions = {}) {
           200,
           new OrgChangeService(database).markApplied(approvalRoute.learningProposalApplyId, {
             workspace_id: context.workspaceId,
-            actor: context.actor,
+            signer: signerFor(context, database),
           }),
         );
         return;
@@ -1130,7 +1162,7 @@ export function createServer(options: ServerOptions = {}) {
         if (url.pathname.endsWith("/reject")) {
           const rejected = new ApprovalService(database).reject(approvalRoute.approvalId, {
             workspace_id: context.workspaceId,
-            actor: context.actor,
+            signer: signerFor(context, database),
           });
           sendJson(
             response,
@@ -1146,7 +1178,7 @@ export function createServer(options: ServerOptions = {}) {
           sendJson(
             response,
             200,
-            spine.resumeDemo(approvalRoute.approvalId, { actor: context.actor }),
+            spine.resumeDemo(approvalRoute.approvalId, { signer: signerFor(context, database) }),
           );
         } else if (
           approval.payload.target_type === "capability_call" &&
@@ -1156,7 +1188,7 @@ export function createServer(options: ServerOptions = {}) {
             response,
             200,
             await spine.resumeApprovedCapability(approvalRoute.approvalId, {
-              actor: context.actor,
+              signer: signerFor(context, database),
               workspace_id: context.workspaceId,
             }),
           );
@@ -1164,11 +1196,15 @@ export function createServer(options: ServerOptions = {}) {
           approval.payload.target_type === "capability_call" &&
           approval.run_id === REFERENCE_RUN_ID
         ) {
-          sendJson(response, 200, await approveReferenceWorkerDemo(database, operatorOf(context)));
+          sendJson(
+            response,
+            200,
+            await approveReferenceWorkerDemo(database, signerFor(context, database)),
+          );
         } else if (approval.payload.target_type === "capability_call") {
           new ApprovalService(database).approve(approvalRoute.approvalId, {
             workspace_id: context.workspaceId,
-            actor: context.actor,
+            signer: signerFor(context, database),
           });
           sendJson(
             response,
@@ -1186,7 +1222,7 @@ export function createServer(options: ServerOptions = {}) {
             200,
             createApprovalServiceWithApplications(database).approve(approvalRoute.approvalId, {
               workspace_id: context.workspaceId,
-              actor: context.actor,
+              signer: signerFor(context, database),
             }),
           );
         }
@@ -1222,12 +1258,13 @@ export function createServer(options: ServerOptions = {}) {
       sendJson(response, 404, { error: "not_found" });
     } catch (error) {
       if (error instanceof SelfApprovalError) {
-        // Separation of duties: the approver is the same identity that requested the approval.
-        // That is a caller-side conflict, not a server fault — map it to 409 with a stable code
-        // and a safe message rather than echoing the internal exception text (#101).
+        // Separation of duties: the decider (approver or rejecter) is the same identity that
+        // requested the approval. That is a caller-side conflict, not a server fault — map it to
+        // 409 with a stable code and a safe message rather than echoing the internal exception
+        // text (#101).
         sendJson(response, 409, {
           error: "self_approval_forbidden",
-          message: "approver must differ from requester",
+          message: "decision-maker must differ from requester",
         });
         return;
       }

@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCli } from "../src/cli.js";
-import { WorkspaceSchema } from "../src/contracts/index.js";
+import { utcNow, WorkspaceSchema } from "../src/contracts/index.js";
 import {
   Database,
   EventStore,
@@ -44,6 +44,9 @@ import {
 
 const WORKSPACE = `ws_${"a".repeat(32)}`;
 const NOW = "2026-07-26T12:00:00Z";
+// Keys seeded for verification fixtures open their validity window strictly
+// BEFORE the pinned NOW, so the injected verification clock sits inside it.
+const PAST = "2026-01-01T00:00:00Z";
 
 function generateEd25519KeyMaterial(): { pkcs8Base64Url: string; publicKeyBase64Url: string } {
   const pair = generateKeyPairSync("ed25519");
@@ -408,7 +411,7 @@ describe("the CLI surface", () => {
       workspace_id: WORKSPACE,
       principal_id: agentPrincipalId,
       public_key: agentMaterial.publicKeyBase64Url,
-      valid_from: NOW,
+      valid_from: PAST,
       created_at: NOW,
     });
 
@@ -472,7 +475,7 @@ describe("the CLI surface", () => {
       workspace_id: WORKSPACE,
       principal_id: `principal_${"2".repeat(32)}`,
       public_key: agentMaterial.publicKeyBase64Url,
-      valid_from: NOW,
+      valid_from: PAST,
       created_at: NOW,
     });
 
@@ -597,7 +600,7 @@ describe("stored attestation and revocation signatures verify from the stored ro
       workspace_id: WORKSPACE,
       principal_id: agentPrincipalId,
       public_key: agentMaterial.publicKeyBase64Url,
-      valid_from: NOW,
+      valid_from: PAST,
       created_at: NOW,
     });
 
@@ -646,7 +649,11 @@ describe("stored attestation and revocation signatures verify from the stored ro
         attestedBody as Record<string, unknown>,
         attestation?.signature ?? "",
       ),
-      now: NOW,
+      // The validity clock is substrate time: attest/revoke sign at real
+      // utcNow() (production now), and bootstrap set valid_from to that same
+      // real time — so verification must evaluate at real time, not the
+      // pinned fixture NOW (which predates the key's window).
+      now: utcNow(),
     });
     expect(attestedVerdict.ok).toBe(true);
 
@@ -672,7 +679,7 @@ describe("stored attestation and revocation signatures verify from the stored ro
         revokedBody as Record<string, unknown>,
         revocation?.signature ?? "",
       ),
-      now: NOW,
+      now: utcNow(),
     });
     expect(revokedVerdict.ok).toBe(true);
   });

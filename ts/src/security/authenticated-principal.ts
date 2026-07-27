@@ -139,6 +139,13 @@ export function enrichPrincipalIdentity(
     dev_bootstrap: principal.dev_bootstrap,
     [AUTHENTICATED]: true,
   };
+  // Freeze BEFORE registering: WeakSet membership proves the object was minted
+  // here, but only freezing makes its properties immutable — without it a
+  // holder could redefine `principal_id` as a stateful getter that answers
+  // differently to the separation-of-duties guard and the stored-signer
+  // resolution, defeating both with one genuine principal. Every field is a
+  // primitive (or null), so a shallow freeze is a deep one.
+  Object.freeze(minted);
   MINTED_PRINCIPALS.add(minted);
   return minted;
 }

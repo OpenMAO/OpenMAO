@@ -10,8 +10,8 @@ actually been accepted versus attempted.
 | M3 Custody + bootstrap | **ACCEPTED** | 2026-07-27 | 518 tests; 2 audit rounds; P0 confirmed fixed, caller-trust bypass closed by driver |
 | M3a Console extraction | **ACCEPTED** | 2026-07-27 | pure move; output byte-identical at source AND runtime; server.ts 2563 -> 1266 |
 | M4 Atomic cutover | **ACCEPTED** | 2026-07-27 | 531 tests; 6 audit findings fixed; spread-forgery closed by driver |
-| M5 Signed decisions | next | — | — |
-| M6 Chain attestations | not started | — | — |
+| M5 Signed decisions | **ACCEPTED** | 2026-07-27 | 551 tests; 2 P0s fixed; null-actor escape deleted, reject() guarded |
+| M6 Chain attestations | next | — | — |
 | M7 Docs + evidence | not started | — | — |
 
 ## Failure signatures
@@ -333,3 +333,48 @@ spread forgery are now refused.
 The lesson generalises past this branch: **a brand carried as a property is copyable; only object
 identity is not.** Same family as the three fail-open guards already recorded — a check that tests
 for the presence of a marker rather than the provenance of the object is not a check.
+
+### M5 — ACCEPTED (2026-07-27)
+
+`make check` green, **551 tests** (M4 left it at 531), typecheck clean in the same run. The three
+deltas this milestone existed to produce, all verified against the recorded baseline: `actor === null`
+1 → **0**, `reject()` self-guard 0 → **1**, signatures wired into approvals 0 → **3**.
+
+The four authority-moving transitions — approval approve and reject, autonomy ratification,
+org-change apply and revert — now sign inside the state-transition transaction, with the signer
+resolved from stored rows and the produced envelope verified against the stored enrolled key before
+anything commits. Signatures live in `governance_signatures`; the event carries only a reference and
+the verifier's verdict inside the opaque payload, so the hash chain is untouched.
+
+**The audit found two P0s, and both are worth recording because neither was a coding slip — each was
+a category error about what a check proves.**
+
+1. **Minted identities were mutable, so separation of duties was defeatable with a genuine
+   credential.** The `WeakSet` added in M4 proves the *object* was minted here, but its *properties*
+   stayed redefinable. I verified the attack mechanically: a stateful getter on `principal_id`
+   returns the victim's id when the self-approval guard reads it and the attacker's when the signer
+   resolution reads it — `read1=victim read2=attacker` — and the attacker's real enrolled key then
+   signs a valid self-approval. Fixed by freezing before registration *and* by snapshotting the
+   identity once per decision path, so guard and signer cannot observe different values even in
+   principle.
+2. **Key validity windows were bypassable.** `valid_from` appeared **zero** times in the verification
+   path despite a doc comment claiming the window came from stored rows, and the *validity* clock was
+   the caller-influenced `decidedAt`. So a future-dated key could sign immediately, and an expired key
+   could sign by backdating. Fixed by loading `valid_from`, adding a typed `key_not_yet_valid`
+   refusal, and evaluating validity against substrate time — while the signed body's timestamp stays
+   row-derived. Two different clocks; only one may be caller-influenced.
+
+Also fixed: `signGovernanceDecision` was exported and would sign an arbitrary or non-existent object,
+and the decision type lived only in a database column — so a signature could be reclassified without
+invalidating it. The primitive is now module-private behind four transition-specific wrappers, and
+the object type is bound into the signed bytes through the JOSE `typ`, so a reclassified row fails
+with `class_mismatch`.
+
+**The pattern, now four for four:** every milestone's decisive defect has been a check that tested
+the *presence of a marker* rather than the *provenance or immutability of the thing*. Spread copied a
+brand; a getter defeated a frozen-looking object; absence-of-production-signal stood in for
+under-test; a status column stood in for a validity window. M7 should state this once, plainly.
+
+Credit where due: the executor's two self-disclosed deviations both came back clean under audit — the
+post-write standing check is sound for this synchronous single-connection SQLite implementation, and
+the `?? at` fallback was unreachable. The defects were in what it did not flag.

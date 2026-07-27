@@ -43,6 +43,7 @@ import {
   WorkspaceStore,
 } from "../src/persistence/index.js";
 import { StaticCredentialBroker } from "../src/security/credential-broker.js";
+import { createSigningOperator } from "./helpers/principals.js";
 
 const fixturePath = new URL("../../tests/fixtures/canonical_v0.json", import.meta.url);
 
@@ -70,6 +71,11 @@ async function seedWorkspace(): Promise<string> {
   const workspace = WorkspaceSchema.parse(fixture.workspace);
   new WorkspaceStore(database).save(workspace);
   return workspace.id;
+}
+
+/** A signing operator (human principal + active enrolled key) for decision calls. */
+function operatorSigner(workspaceId: string, displayName = "Test Operator") {
+  return createSigningOperator(database, workspaceId, displayName);
 }
 
 async function seedRunningRun(taskUpdates: Record<string, unknown> = {}): Promise<Run> {
@@ -275,7 +281,10 @@ describe("TypeScript governance and capabilities", () => {
     expect(suspended?.status).toBe("suspended_approval");
     expect(suspended?.suspended_approval_id).toBe(approval.id);
 
-    const approved = approvalService.approve(approval.id, { workspace_id: run.workspace_id });
+    const approved = approvalService.approve(approval.id, {
+      workspace_id: run.workspace_id,
+      signer: operatorSigner(run.workspace_id).signer,
+    });
     const resumed = new RunStore(database).get(run.id);
 
     expect(approved.status).toBe("approved");
@@ -298,13 +307,15 @@ describe("TypeScript governance and capabilities", () => {
       }),
     });
 
+    const firstOperator = operatorSigner(run.workspace_id, "CLI Operator");
+    const secondOperator = operatorSigner(run.workspace_id, "Console Operator");
     const approved = approvalService.approve(approval.id, {
       workspace_id: run.workspace_id,
-      actor: "cli_operator",
+      signer: firstOperator.signer,
     });
     const replayed = approvalService.approve(approval.id, {
       workspace_id: run.workspace_id,
-      actor: "console_operator",
+      signer: secondOperator.signer,
     });
     const approvedEvents = new EventStore(database)
       .listForRun(run.workspace_id, run.id)
@@ -312,7 +323,7 @@ describe("TypeScript governance and capabilities", () => {
 
     expect(replayed).toEqual(approved);
     expect(approvedEvents).toHaveLength(1);
-    expect(approvedEvents[0]?.actor).toBe("cli_operator");
+    expect(approvedEvents[0]?.actor).toBe(firstOperator.principal.actor);
   });
 
   it("dispatches non-run approval applications explicitly", async () => {
@@ -334,9 +345,10 @@ describe("TypeScript governance and capabilities", () => {
       on_reject: "no_op",
     });
 
+    const operator = operatorSigner(workspaceId);
     const approved = approvalService.approve(approval.id, {
       workspace_id: workspaceId,
-      actor: "test_operator",
+      signer: operator.signer,
     });
     const eventKinds = new EventStore(database).listForWorkspace(workspaceId).map((event) => ({
       actor: event.actor,
@@ -345,8 +357,14 @@ describe("TypeScript governance and capabilities", () => {
 
     expect(approved.status).toBe("approved");
     expect(applied).toEqual([approval.id]);
-    expect(eventKinds).toContainEqual({ actor: "test_operator", kind: "approval.approved" });
-    expect(eventKinds).toContainEqual({ actor: "test_operator", kind: "approval.applied" });
+    expect(eventKinds).toContainEqual({
+      actor: operator.principal.actor,
+      kind: "approval.approved",
+    });
+    expect(eventKinds).toContainEqual({
+      actor: operator.principal.actor,
+      kind: "approval.applied",
+    });
   });
 
   it("rejects no-op non-run approvals without applying side effects", async () => {
@@ -368,9 +386,10 @@ describe("TypeScript governance and capabilities", () => {
       on_reject: "no_op",
     });
 
+    const operator = operatorSigner(workspaceId);
     const rejected = approvalService.reject(approval.id, {
       workspace_id: workspaceId,
-      actor: "test_operator",
+      signer: operator.signer,
     });
     const eventKinds = new EventStore(database).listForWorkspace(workspaceId).map((event) => ({
       actor: event.actor,
@@ -381,7 +400,7 @@ describe("TypeScript governance and capabilities", () => {
     expect(applied).toEqual([]);
     expect(eventKinds).toEqual([
       { actor: "approval_service", kind: "approval.requested" },
-      { actor: "test_operator", kind: "approval.rejected" },
+      { actor: operator.principal.actor, kind: "approval.rejected" },
     ]);
   });
 
@@ -403,7 +422,7 @@ describe("TypeScript governance and capabilities", () => {
     expect(() =>
       new ApprovalService(database).approve(approval.id, {
         workspace_id: workspaceId,
-        actor: "test_operator",
+        signer: operatorSigner(workspaceId).signer,
       }),
     ).toThrow("application handler");
   });
@@ -414,10 +433,11 @@ describe("TypeScript governance and capabilities", () => {
     const approvalService = new ApprovalService(database, {
       applyWithoutRun: (approval) => applied.push(approval.id),
     });
+    const alice = operatorSigner(workspaceId, "Operator Alice");
     const approval = approvalService.request({
       workspace_id: workspaceId,
       action: "memory.promote",
-      requested_by: "operator_alice",
+      requested_by: alice.principal.principal_id,
       payload: ApprovalPayloadSchema.parse({
         target_type: "promotion_candidate",
         target_id: "promo_cccccccccccccccccccccccccccccccc",
@@ -429,47 +449,52 @@ describe("TypeScript governance and capabilities", () => {
 
     // The requester cannot approve their own request; the apply handler never fires.
     expect(() =>
-      approvalService.approve(approval.id, { workspace_id: workspaceId, actor: "operator_alice" }),
+      approvalService.approve(approval.id, { workspace_id: workspaceId, signer: alice.signer }),
     ).toThrow(SelfApprovalError);
     expect(applied).toEqual([]);
 
     // A distinct approver resolves and applies the still-pending approval.
     const approved = approvalService.approve(approval.id, {
       workspace_id: workspaceId,
-      actor: "operator_bob",
+      signer: operatorSigner(workspaceId, "Operator Bob").signer,
     });
 
     expect(approved.status).toBe("approved");
     expect(applied).toEqual([approval.id]);
   });
 
-  it("rejects a supplied-but-blank approver identity", async () => {
+  it("refuses an approver whose id matches a whitespace-padded requester", async () => {
     const workspaceId = await seedWorkspace();
     const applied: string[] = [];
     const approvalService = new ApprovalService(database, {
       applyWithoutRun: (approval) => applied.push(approval.id),
     });
+    const alice = operatorSigner(workspaceId, "Operator Alice");
     const approval = approvalService.request({
       workspace_id: workspaceId,
       action: "memory.promote",
-      requested_by: "operator_alice",
+      // Whitespace padding must not let a requester slip past the guard: the
+      // comparison trims the stored requested_by before comparing principal ids.
+      requested_by: `  ${alice.principal.principal_id}  `,
       payload: ApprovalPayloadSchema.parse({
         target_type: "promotion_candidate",
         target_id: "promo_cccccccccccccccccccccccccccccccc",
-        reason: "A blank approver must not pass as unattributed.",
+        reason: "A padded requester id must not defeat the self-approval guard.",
       }),
       on_approve: "apply_without_run",
       on_reject: "no_op",
     });
 
-    // A whitespace-only actor must not slip past the guard by trimming to empty.
     expect(() =>
-      approvalService.approve(approval.id, { workspace_id: workspaceId, actor: "   " }),
+      approvalService.approve(approval.id, { workspace_id: workspaceId, signer: alice.signer }),
     ).toThrow(SelfApprovalError);
     expect(applied).toEqual([]);
 
     // A distinct, attributable approver resolves and applies it.
-    approvalService.approve(approval.id, { workspace_id: workspaceId, actor: "operator_bob" });
+    approvalService.approve(approval.id, {
+      workspace_id: workspaceId,
+      signer: operatorSigner(workspaceId, "Operator Bob").signer,
+    });
     expect(applied).toEqual([approval.id]);
   });
 
@@ -786,6 +811,7 @@ describe("TypeScript governance and capabilities", () => {
 
     new ApprovalService(database).approve(suspendedInvocation.approval_id ?? "", {
       workspace_id: run.workspace_id,
+      signer: operatorSigner(run.workspace_id).signer,
     });
     const resumedInvocation = await service.resumeApprovedCall(
       suspendedInvocation.approval_id ?? "",
@@ -823,6 +849,7 @@ describe("TypeScript governance and capabilities", () => {
 
     new ApprovalService(database).approve(suspendedInvocation.approval_id ?? "", {
       workspace_id: run.workspace_id,
+      signer: operatorSigner(run.workspace_id).signer,
     });
     const resumedInvocation = await service.resumeApprovedCall(
       suspendedInvocation.approval_id ?? "",
@@ -853,7 +880,7 @@ describe("TypeScript governance and capabilities", () => {
     const suspendedInvocation = await service.invoke(call);
     new ApprovalService(database).reject(suspendedInvocation.approval_id ?? "", {
       workspace_id: run.workspace_id,
-      actor: "test_operator",
+      signer: operatorSigner(run.workspace_id).signer,
     });
     const rejectedInvocation = await service.invoke(call);
 
@@ -982,7 +1009,7 @@ describe("TypeScript governance and capabilities", () => {
 
     new ApprovalService(database).approve(suspended.approval_id ?? "", {
       workspace_id: run.workspace_id,
-      actor: "test_operator",
+      signer: operatorSigner(run.workspace_id).signer,
     });
     const resumedProvider = new MockSideEffectProvider({ cred_mock_side_effect: rawSecret });
     const resumed = await new CapabilityRegistryService(
@@ -1303,7 +1330,7 @@ describe("TypeScript governance and capabilities", () => {
     // 2. After approval, resume executes the provider exactly once.
     new ApprovalService(database).approve(suspended.approval_id ?? "", {
       workspace_id: run.workspace_id,
-      actor: "operator",
+      signer: operatorSigner(run.workspace_id).signer,
     });
     const resumed = await new CapabilityRegistryService(
       database,

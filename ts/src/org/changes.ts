@@ -9,7 +9,7 @@ import {
   type OrgChangeSourceSignal,
   utcNow,
 } from "../contracts/index.js";
-import { ApprovalService } from "../governance/index.js";
+import { ApprovalService, type DecisionSigner } from "../governance/index.js";
 import {
   ApprovalStore,
   type Database,
@@ -160,7 +160,7 @@ export class OrgChangeService {
 
   markApplied(
     proposalId: string,
-    input: { workspace_id: string; actor: string; resolved_at?: string | null },
+    input: { workspace_id: string; signer: DecisionSigner; resolved_at?: string | null },
   ): OrgChangeProposal {
     return this.database.transaction(() => {
       const proposal = this.proposals.get(proposalId);
@@ -187,7 +187,7 @@ export class OrgChangeService {
       if (this.applyService.hasApplier(proposal.change_type)) {
         this.applyService.apply(proposalId, {
           workspace_id: input.workspace_id,
-          actor: input.actor,
+          signer: input.signer,
           at: input.resolved_at ?? null,
         });
         const realApplied = this.proposals.get(proposalId);
@@ -207,7 +207,7 @@ export class OrgChangeService {
       // route — the kill-switch covers everything.
       this.applyService.assertApplyAllowed(proposal, {
         workspace_id: input.workspace_id,
-        actor: input.actor,
+        principal_id: input.signer.principal.principal_id,
       });
       const acknowledged = this.proposals.setStatus(
         proposal.id,
@@ -217,7 +217,7 @@ export class OrgChangeService {
       this.events.append({
         workspace_id: acknowledged.workspace_id,
         kind: "org_change.acknowledged",
-        actor: input.actor,
+        actor: input.signer.principal.actor,
         payload: EventPayloadSchema.parse({
           data: {
             // The full proposal carries the ratified recommendation (patch_json); the flags say
@@ -288,11 +288,11 @@ export class OrgChangeService {
    */
   revertApplication(
     applicationId: string,
-    input: { workspace_id: string; actor: string; resolved_at?: string | null },
+    input: { workspace_id: string; signer: DecisionSigner; resolved_at?: string | null },
   ): OrgChangeApplication {
     return this.applyService.revert(applicationId, {
       workspace_id: input.workspace_id,
-      actor: input.actor,
+      signer: input.signer,
       at: input.resolved_at ?? null,
     });
   }
