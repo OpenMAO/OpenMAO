@@ -2,14 +2,11 @@ export type ConsoleConfig = {
   RUN_ID: string;
   COORDINATOR_AGENT_ID: string;
   TOKEN_HEADER: string;
-  ACTOR_HEADER: string;
-  CONSOLE_ACTOR: string;
   WORKSPACE_ID: string;
 };
 
 export function consoleHtml(config: ConsoleConfig): string {
-  const { RUN_ID, COORDINATOR_AGENT_ID, TOKEN_HEADER, ACTOR_HEADER, CONSOLE_ACTOR, WORKSPACE_ID } =
-    config;
+  const { RUN_ID, COORDINATOR_AGENT_ID, TOKEN_HEADER, WORKSPACE_ID } = config;
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -346,7 +343,7 @@ export function consoleHtml(config: ConsoleConfig): string {
         <span id="autonomy"></span>
       </div>
       <div class="con-toolbar">
-        <input id="token-input" class="input" type="password" autocomplete="off" placeholder="Operator token" aria-label="Operator token" />
+        <input id="token-input" class="input" type="password" autocomplete="off" placeholder="Principal token" aria-label="Principal token" />
         <button class="btn btn-ghost btn-sm" id="dev-names" aria-pressed="false" title="Reveal the underlying kernel terms">Developer names</button>
         <button class="btn btn-ghost btn-sm" id="reset-token">Reset</button>
         <button class="btn btn-sm" id="refresh">Refresh</button>
@@ -393,8 +390,6 @@ export function consoleHtml(config: ConsoleConfig): string {
     var RUN_ID = ${JSON.stringify(RUN_ID)};
     var COORDINATOR_AGENT_ID = ${JSON.stringify(COORDINATOR_AGENT_ID)};
     var TOKEN_HEADER = ${JSON.stringify(TOKEN_HEADER)};
-    var ACTOR_HEADER = ${JSON.stringify(ACTOR_HEADER)};
-    var CONSOLE_ACTOR = ${JSON.stringify(CONSOLE_ACTOR)};
     var WORKSPACE_ID = ${JSON.stringify(WORKSPACE_ID)};
 
     function svgIcon(inner) {
@@ -597,13 +592,12 @@ export function consoleHtml(config: ConsoleConfig): string {
     };
     function titleFor(view) { return (VOCAB[view] && VOCAB[view].op) || view; }
 
-    function operatorToken() {
-      return tokenInput.value || sessionStorage.getItem("openmaoOperatorToken") || "";
+    function principalToken() {
+      return tokenInput.value || sessionStorage.getItem("openmaoPrincipalToken") || "";
     }
     function headers() {
       var h = {};
-      h[TOKEN_HEADER] = operatorToken();
-      h[ACTOR_HEADER] = CONSOLE_ACTOR;
+      h[TOKEN_HEADER] = principalToken();
       h["x-openmao-workspace"] = selectedWorkspace;
       return h;
     }
@@ -614,7 +608,7 @@ export function consoleHtml(config: ConsoleConfig): string {
     }
     async function request(path, init) {
       init = init || {};
-      if (!operatorToken()) throw { error: "operator_token_required" };
+      if (!principalToken()) throw { error: "principal_token_required" };
       var merged = {};
       var base = headers();
       for (var k in base) merged[k] = base[k];
@@ -688,7 +682,7 @@ export function consoleHtml(config: ConsoleConfig): string {
     }
 
     async function refreshOrg() {
-      if (!operatorToken()) { autonomySlot.replaceChildren(); orgState = null; rolesById = {}; agentsById = {}; return; }
+      if (!principalToken()) { autonomySlot.replaceChildren(); orgState = null; rolesById = {}; agentsById = {}; return; }
       try {
         var data = await request("/org");
         orgState = (data.organizations && data.organizations[0]) || null;
@@ -703,7 +697,7 @@ export function consoleHtml(config: ConsoleConfig): string {
     }
 
     async function refreshWorkspaces() {
-      if (!operatorToken()) { return; }
+      if (!principalToken()) { return; }
       try {
         workspaces = await request("/workspaces");
         if (!workspaces.some(function (w) { return w.id === selectedWorkspace; }) && workspaces.length) {
@@ -735,8 +729,8 @@ export function consoleHtml(config: ConsoleConfig): string {
     function note(text) { return el("div", { class: "note", text: text }); }
     function loadingNote() { return note("Loading…"); }
     function errorView(e) {
-      if (e && e.error === "operator_token_required") {
-        return emptyCta("inbox", "Connect to your organization", "Enter your operator token in the header to load the console. Everything you do here is governed, audited, and reversible.", null);
+      if (e && e.error === "principal_token_required") {
+        return emptyCta("inbox", "Connect to your organization", "Enter your principal token in the header to load the console. Everything you do here is governed, audited, and reversible.", null);
       }
       return panel("Error", el("pre", { class: "", style: "margin:0;font-family:var(--font-mono);font-size:12px;color:var(--state-danger-fg);white-space:pre-wrap", text: JSON.stringify(e, null, 2) }));
     }
@@ -1239,7 +1233,7 @@ export function consoleHtml(config: ConsoleConfig): string {
     }
     // Light "what needs you" counters on the nav, so triage is visible from anywhere.
     async function refreshBadges() {
-      if (!operatorToken()) { setNavBadge("home-badge", 0); setNavBadge("appr-badge", 0); return; }
+      if (!principalToken()) { setNavBadge("home-badge", 0); setNavBadge("appr-badge", 0); return; }
       try {
         var res = await Promise.all([
           request("/approvals").catch(function () { return []; }),
@@ -1299,13 +1293,13 @@ export function consoleHtml(config: ConsoleConfig): string {
     });
     document.getElementById("refresh").addEventListener("click", function () { reloadAll(); });
     document.getElementById("reset-token").addEventListener("click", function () {
-      sessionStorage.removeItem("openmaoOperatorToken");
+      sessionStorage.removeItem("openmaoPrincipalToken");
       tokenInput.value = "";
       reloadAll();
     });
-    tokenInput.value = sessionStorage.getItem("openmaoOperatorToken") || "";
+    tokenInput.value = sessionStorage.getItem("openmaoPrincipalToken") || "";
     tokenInput.addEventListener("change", function () {
-      sessionStorage.setItem("openmaoOperatorToken", tokenInput.value);
+      sessionStorage.setItem("openmaoPrincipalToken", tokenInput.value);
       reloadAll();
     });
 

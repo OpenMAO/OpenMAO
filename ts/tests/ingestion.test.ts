@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WorkerIdentitySchema, WorkItemSchema, WorkspaceSchema } from "../src/contracts/index.js";
-import { IngestionService } from "../src/ingestion/index.js";
+import { IngestionService, OperatorActorRefusedError } from "../src/ingestion/index.js";
 import {
   Database,
   EventStore,
@@ -69,11 +69,13 @@ describe("ingestion service", () => {
       payload: { node: "reference_worker.completed" },
       occurred_at: "2026-05-27T15:21:00Z",
       idempotency_key: "reference-worker:trace:completed",
+      recorded_by: "principal_recorder",
     });
     const replayed = service.record({
       ...record,
       source: record.source,
       actor: record.actor,
+      recorded_by: "principal_recorder",
     });
     const events = new EventStore(database).listForWorkspace(workspaceId);
     const world = new WorldModelService(database).rebuild(workspaceId);
@@ -81,13 +83,17 @@ describe("ingestion service", () => {
     expect(replayed).toEqual(record);
     expect(new IngestionRecordStore(database).listForWorkspace(workspaceId)).toEqual([record]);
     expect(events.map((event) => event.kind)).toEqual(["ingestion.recorded"]);
-    expect(events[0]?.actor).toBe("worker:worker_12121212121212121212121212121212");
+    // Authority is the recording principal; the foreign worker the body named
+    // is provenance and rides payload.actor_ref.
+    expect(events[0]?.actor).toBe("principal_recorder");
+    expect(events[0]?.payload.actor_ref).toEqual(record.actor);
     expect(world.recent_ingestions).toEqual([record.id]);
     expect(() =>
       service.record({
         ...record,
         id: "ingest_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         payload: { changed: true },
+        recorded_by: "principal_recorder",
       }),
     ).toThrow(IngestionRecordConflictError);
   });
@@ -110,6 +116,7 @@ describe("ingestion service", () => {
         kind: "trace",
         target_work_item_id: workItemId,
         idempotency_key: "",
+        recorded_by: "principal_recorder",
       }),
     ).toThrow("idempotency");
     expect(() =>
@@ -124,6 +131,7 @@ describe("ingestion service", () => {
         kind: "trace",
         target_work_item_id: workItemId,
         idempotency_key: "reference-worker:trace:missing-source",
+        recorded_by: "principal_recorder",
       }),
     ).toThrow("source external identity");
     expect(() =>
@@ -138,6 +146,7 @@ describe("ingestion service", () => {
         kind: "trace",
         target_work_item_id: workItemId,
         idempotency_key: "reference-worker:trace:missing-worker",
+        recorded_by: "principal_recorder",
       }),
     ).toThrow("worker actor");
   });
@@ -162,8 +171,32 @@ describe("ingestion service", () => {
         target_work_item_id: workItemId,
         payload: { api_key: "sk-testsecret123456" },
         idempotency_key: "reference-worker:trace:redacted-payload",
+        recorded_by: "principal_recorder",
       }),
     ).toThrow("sensitive key");
+    expect(new IngestionRecordStore(database).listForWorkspace(workspaceId)).toEqual([]);
+    expect(new EventStore(database).listForWorkspace(workspaceId)).toEqual([]);
+  });
+
+  it("refuses an inbound foreign event that claims OpenMAO operator authority", async () => {
+    const fixture = await loadFixture();
+    const workspaceId = (fixture.workspace as { id: string }).id;
+    const service = new IngestionService(database);
+
+    expect(() =>
+      service.record({
+        workspace_id: workspaceId,
+        source: { provider: "openmao", external_id: "foreign-system", external_url: null },
+        actor: {
+          actor_type: "operator",
+          actor_id: "self-proclaimed-operator",
+          display_name: null,
+        },
+        kind: "event",
+        idempotency_key: "foreign:operator-claim",
+        recorded_by: "principal_recorder",
+      }),
+    ).toThrow(OperatorActorRefusedError);
     expect(new IngestionRecordStore(database).listForWorkspace(workspaceId)).toEqual([]);
     expect(new EventStore(database).listForWorkspace(workspaceId)).toEqual([]);
   });

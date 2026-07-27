@@ -25,14 +25,15 @@ import {
   REFERENCE_WORK_ID,
   REFERENCE_WORKER_ID,
 } from "../src/workers/index.js";
-
-const OPERATOR_TOKEN = "test-operator-token";
+import { principalHeaders, seedPrincipalAtPath } from "./helpers/principals.js";
 
 let tmpRoot: string;
 let dbPath: string;
 let server: Server;
 let baseUrl: string;
 let workerToken: string;
+let operatorPrincipalId: string;
+let operatorToken: string;
 
 type Res = {
   status: number;
@@ -59,10 +60,7 @@ async function req(
 }
 
 const workerHeaders = (): Record<string, string> => ({ "x-openmao-worker-token": workerToken });
-const operatorHeaders = (): Record<string, string> => ({
-  "x-openmao-operator-token": OPERATOR_TOKEN,
-  "x-openmao-actor": "operator",
-});
+const operatorHeaders = (): Record<string, string> => principalHeaders(operatorToken);
 
 function capabilityCallBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -131,7 +129,10 @@ beforeEach(async () => {
   }).token;
   database.close();
 
-  server = createServer({ dbPath, operatorToken: OPERATOR_TOKEN, workspaceId: WORKSPACE_ID });
+  const operator = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
+  operatorPrincipalId = operator.principal_id;
+  operatorToken = operator.token;
+  server = createServer({ dbPath });
   await new Promise<void>((resolve) => {
     server.listen(0, "127.0.0.1", resolve);
   });
@@ -293,15 +294,24 @@ describe("per-worker auth", () => {
     expect(visibleIds.has(otherResultId)).toBe(false);
   });
 
-  it("rejects a whitespace-only operator actor over HTTP with 400 missing_actor", async () => {
-    // A blank actor cannot anchor an audit trail; the operator boundary treats "   " exactly like a
-    // missing actor header so merge order with the approval-integrity work can never regress it.
-    const { status, json } = await req("GET", "/capability-calls", {
-      "x-openmao-operator-token": OPERATOR_TOKEN,
+  it("rejects a caller-supplied actor header with 400 — even a blank one, even with a valid credential", async () => {
+    // The guarantee the retired whitespace-actor test pinned, at the new boundary: a supplied
+    // actor header is not sanitised into shape, it is a spoof attempt and fails closed. The
+    // recorded identity is always the credential's principal (operatorPrincipalId), so there is
+    // no merge-order path back to caller-influenced identity.
+    const blank = await req("GET", "/capability-calls", {
+      ...operatorHeaders(),
       "x-openmao-actor": "   ",
     });
-    expect(status).toBe(400);
-    expect(json.error).toBe("missing_actor");
+    expect(blank.status).toBe(400);
+    expect(blank.json.error).toBe("actor_header_rejected");
+    const forged = await req("GET", "/capability-calls", {
+      ...operatorHeaders(),
+      "x-openmao-actor": REFERENCE_WORKER_ID,
+    });
+    expect(forged.status).toBe(400);
+    expect(forged.json.error).toBe("actor_header_rejected");
+    expect(operatorPrincipalId).toMatch(/^principal_/);
   });
 
   it("maps an idempotency-key conflict (same key, different id) to 409, not 500", async () => {

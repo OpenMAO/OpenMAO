@@ -9,7 +9,7 @@ actually been accepted versus attempted.
 | M2 Identity storage | **ACCEPTED** | 2026-07-26 | 428 tests; 2 audit rounds, 13 findings incl. a demonstrated P0 signature forgery |
 | M3 Custody + bootstrap | **ACCEPTED** | 2026-07-27 | 518 tests; 2 audit rounds; P0 confirmed fixed, caller-trust bypass closed by driver |
 | M3a Console extraction | **ACCEPTED** | 2026-07-27 | pure move; output byte-identical at source AND runtime; server.ts 2563 -> 1266 |
-| M4 Atomic cutover | next | — | — |
+| M4 Atomic cutover | code written, AUDIT PENDING (attempt 1/3) | — | 522 tests green; all 3 surfaces cut over; legacy token path deleted; audit interrupted by API 529 |
 | M5 Signed decisions | not started | — | — |
 | M6 Chain attestations | not started | — | — |
 | M7 Docs + evidence | not started | — | — |
@@ -249,3 +249,40 @@ build fails if they diverge.
 
 Also cleaned: a gitignored `.openmao/` runtime directory accumulated during execution, which was
 making `make demo-approve` fail on stale state. Removed; not a code issue.
+
+### M4 — code complete, audit pending (2026-07-27)
+
+`make check` exit 0 with typecheck clean **in the same run**: 49 files / **522 tests** (was 518).
+Committed durable-but-not-accepted so a five-hour executor run cannot be lost to an interruption;
+the cross-family audit was cut off mid-probe by a transient API 529 and must be re-run before this
+milestone can be accepted.
+
+The wave did what it had to do atomically — HTTP, console and CLI in one commit, with the legacy
+bearer path **deleted rather than deferred**, because a green tree containing a privileged unsigned
+path is exactly the condition this branch exists to end.
+
+**Deleted, not merely superseded** (driver-verified by grep): `ServerOptions.operatorToken`,
+`tokenMatches`, the random boot token and its stdout print; `CONSOLE_ACTOR`; `cli_operator` /
+`LEGACY_CLI_ACTOR`; all ten `--by` flag occurrences — three lines remain and they are a *hard error*
+naming the replacement, so a stale script fails loudly instead of being silently reinterpreted;
+`requireUnambiguousWriteWorkspace` and its 23 call sites, dead once the credential forces the
+workspace; and `producedSignatureVerifies`, the hand-rolled crypto, replaced by the registry-backed
+`verifyObject`. `x-openmao-operator-token` survives only inside `REJECTED_HEADERS` as a permanent
+regression fence.
+
+**`verifyObject` finally has a production caller** — the gap the M3 audit flagged. `attestPrincipalKey`
+and `revokePrincipalKey` now verify the produced envelope against the *stored enrolled* key before
+the recording transaction, so a broker that does not hold the key it claims writes nothing.
+
+**The gate-relevant unlock:** with per-principal console tokens replacing the hardcoded actor, two
+humans in two browser profiles can each approve under their own identity. Separation of duties stops
+being a string comparison and becomes demonstrable.
+
+Two places the executor pushed back and was right: the self-approval test cannot use the demo
+approval (its `requested_by` is an agent id no principal token can equal, so it seeds an
+`OrgChangeService.propose` review instead — which is the two-human separation the milestone actually
+wants), and `/ingestion` returns 201 not 200, which was true at baseline too.
+
+**Carried into the re-audit:** the interrupted run had already flagged a possible TOCTOU window in
+`attestPrincipalKey` — verify-then-write with a gap between the stored-state check and the recording
+transaction. That is the first thing the next audit must probe.

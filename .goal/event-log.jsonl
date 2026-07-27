@@ -12,3 +12,5 @@
 {"ts":"2026-07-27T06:06:17Z","run_id":"tick9-20260726T230515Z","step":"accept","milestone":"M3","detail":"ACCEPTED: 518 tests; P0 verified already fixed at 00e902b (audit was stale); caller-trust bypass reproduced and closed by driver via fail-closed test-runner gate"}
 {"ts":"2026-07-27T06:07:10Z","run_id":"tick11-20260727T060654Z","step":"reserve","milestone":"M3a","detail":"tick 11/24; M3a attempt 1/3; console extraction (risk_tier low -> deterministic verification only)"}
 {"ts":"2026-07-27T06:24:37Z","run_id":"tick11-20260727T060654Z","step":"accept","milestone":"M3a","detail":"ACCEPTED: pure move, byte-identical output verified at source and runtime; server.ts 2563->1266; 518 tests"}
+{"ts":"2026-07-27T06:25:11Z","run_id":"tick13-20260727T062511Z","step":"reserve","milestone":"M4","detail":"tick 13/24; M4 attempt 1/3; atomic cutover — HTTP+console+CLI together"}
+{"ts":"2026-07-27T08:28:30Z","run_id":"tick13-20260727T062511Z","step":"record","milestone":"M4","detail":"code complete, 522 tests green; committed durable-not-accepted; cross-family audit interrupted by API 529, re-run required; carried finding: possible TOCTOU in attestPrincipalKey"}

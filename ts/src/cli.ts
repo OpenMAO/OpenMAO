@@ -115,7 +115,6 @@ function positionalArgs(args: string[]): string[] {
     "--scope",
     "--min-confidence",
     "--limit",
-    "--by",
     "--strength",
     "--note",
     "--subject-key",
@@ -152,15 +151,16 @@ function requireOption(args: string[], name: string): string {
  * shown when explicitly requested, and the requesting actor must be named so
  * the review can be put on the record.
  */
-function memoryReviewOption(args: string[]): MemoryReviewOptions | undefined {
+function memoryReviewOption(
+  args: string[],
+  reviewedBy: () => string,
+): MemoryReviewOptions | undefined {
   if (!args.includes("--include-untrusted")) {
     return undefined;
   }
-  const reviewedBy = optionValue(args, "--by");
-  if (!reviewedBy) {
-    throw new Error("--include-untrusted requires --by <actor>: reviews go on the record");
-  }
-  return { include_untrusted: true, reviewed_by: reviewedBy };
+  // The review goes on the record under the AUTHENTICATED principal — never a
+  // typed-in name.
+  return { include_untrusted: true, reviewed_by: reviewedBy() };
 }
 
 function commaList(value: string | null): string[] {
@@ -250,6 +250,16 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
   const subcommand = positions[1] ?? "";
   const selectedWorkspace = optionValue(args, "--workspace") ?? WORKSPACE_ID;
 
+  // Self-asserted identity is gone: the actor every command records comes from
+  // the authenticated operator profile. A present --by is not ignored — it is
+  // the spoof this boundary exists to close, so it is a hard error naming the
+  // replacement.
+  if (args.includes("--by")) {
+    throw new Error(
+      "--by is no longer accepted: identity comes from the authenticated operator profile (`principals init`, then the command records the profile's principal)",
+    );
+  }
+
   // Read-only commands never provision: no parent directory, no SQLite file,
   // no WAL, no schema. A missing database is reported and exits non-zero.
   if (command === "verify-chain") {
@@ -271,14 +281,27 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
   const database = openLocalDatabase(options.dbPath);
   try {
     const spine = new SpineService(database);
-    // The single identity resolver every actor call site goes through. M3
-    // yields the legacy cli_operator identity so no command's behaviour
-    // changes; M4 flips this one function.
-    const cliPrincipal = resolveCliPrincipal(database, selectedWorkspace);
+    // The single identity resolver every actor call site goes through, resolved
+    // LAZILY: commands that never record an actor (reads, help) never touch the
+    // profile, and `workers mint-token` refuses through requireProfilePrincipal
+    // without auto-bootstrapping. Commands that do record an actor authenticate
+    // from the operator profile, running the M3 root-of-trust ceremony when no
+    // usable profile exists (refused under production signals).
+    let cachedPrincipal: AuthenticatedPrincipal | null = null;
+    const cliPrincipal = (): AuthenticatedPrincipal => {
+      if (!cachedPrincipal) {
+        cachedPrincipal = resolveCliPrincipal(
+          database,
+          selectedWorkspace,
+          cliKeysDir(database, selectedWorkspace),
+        );
+      }
+      return cachedPrincipal;
+    };
 
     if (command === "help" || command === "--help" || command === "-h") {
       write(
-        "openmao demo | demo-approve | demo-deny | init | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert|withdraw | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | autonomy narrow ratify --by <actor> --rejections <n> --violations <m> --window <seconds> --cooldown <seconds> | autonomy narrow scan|list | autonomy narrow lift <id> --by <actor> --note <text> | memory search|list [--include-untrusted --by <actor>]|attest <entry_id> --by <operator>|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | verify-chain | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | console | principals init|mint-token|attest --subject-key <key_id>|revoke-key <key_id> [--reason <code>]",
+        "openmao demo | demo-approve | demo-deny | init | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert|withdraw | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | autonomy narrow ratify --rejections <n> --violations <m> --window <seconds> --cooldown <seconds> | autonomy narrow scan|list | autonomy narrow lift <id> --note <text> | memory search|list [--include-untrusted]|attest <entry_id>|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | verify-chain | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | console | principals init|mint-token|attest --subject-key <key_id>|revoke-key <key_id> [--reason <code>]",
       );
       return 0;
     }
@@ -293,18 +316,23 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
     }
     if (command === "demo-approve") {
       requireDefaultWorkspace(selectedWorkspace);
-      printJson(write, spine.resumeDemo(positions[1] ?? PROMOTION_APPROVAL_ID));
+      printJson(
+        write,
+        spine.resumeDemo(positions[1] ?? PROMOTION_APPROVAL_ID, {
+          actor: cliPrincipal().actor,
+        }),
+      );
       return 0;
     }
     if (command === "demo-deny") {
       requireDefaultWorkspace(selectedWorkspace);
-      printJson(write, await spine.denyDemo());
+      printJson(write, await spine.denyDemo({ actor: cliPrincipal().actor }));
       return 0;
     }
     if (command === "run" && subcommand === "resume") {
       requireDefaultWorkspace(selectedWorkspace);
       const runId = positions[2] ?? RUN_ID;
-      printJson(write, await spine.resumeRun(runId));
+      printJson(write, await spine.resumeRun(runId, { actor: cliPrincipal().actor }));
       return 0;
     }
     if (command === "approvals" && subcommand === "list") {
@@ -338,12 +366,16 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           version: optionValue(args, "--version"),
           role_id: optionValue(args, "--role"),
           allowed_capabilities: commaList(optionValue(args, "--capabilities")),
-          actor: cliPrincipal.actor,
+          actor: cliPrincipal().actor,
         }),
       );
       return 0;
     }
     if (command === "workers" && subcommand === "mint-token") {
+      // Minting a worker credential is an authority act: it requires an
+      // authenticated operator profile with signing standing, and it never
+      // auto-bootstraps one.
+      requireProfilePrincipal(database, cliKeysDir(database, selectedWorkspace), selectedWorkspace);
       const workerId = positions[2] ?? optionValue(args, "--worker");
       if (!workerId) {
         throw new Error("workers mint-token requires a worker id");
@@ -390,7 +422,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           priority: (optionValue(args, "--priority") ?? "medium") as never,
           risk_level: (optionValue(args, "--risk") ?? "low") as never,
           success_criteria: commaList(optionValue(args, "--criteria")),
-          actor: cliPrincipal.actor,
+          actor: cliPrincipal().actor,
         }),
       );
       return 0;
@@ -407,7 +439,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           work_item_id: workId,
           owner: requireOption(args, "--owner"),
           reviewer: optionValue(args, "--reviewer"),
-          actor: cliPrincipal.actor,
+          actor: cliPrincipal().actor,
         }),
       );
       return 0;
@@ -424,7 +456,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           workspace_id: selectedWorkspace,
           work_item_id: workId,
           status: status as never,
-          actor: cliPrincipal.actor,
+          actor: cliPrincipal().actor,
         }),
       );
       return 0;
@@ -470,7 +502,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           workspace_id: selectedWorkspace,
           work_item_id: workId,
           decision: decision as never,
-          actor: cliPrincipal.actor,
+          actor: cliPrincipal().actor,
         }),
       );
       return 0;
@@ -487,7 +519,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           workspace_id: selectedWorkspace,
           work_item_id: workId,
           worker_id: requireOption(args, "--worker"),
-          issued_by: { actor_type: "operator", actor_id: cliPrincipal.actor, display_name: null },
+          issued_by: { actor_type: "operator", actor_id: cliPrincipal().actor, display_name: null },
           run_id: optionValue(args, "--run"),
           allowed_capabilities: commaList(optionValue(args, "--capabilities")),
           input: jsonOption(optionValue(args, "--input")),
@@ -537,6 +569,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           target_work_item_id: optionValue(args, "--work"),
           payload: jsonOption(optionValue(args, "--payload")),
           idempotency_key: requireOption(args, "--idempotency-key"),
+          recorded_by: cliPrincipal().actor,
         }),
       );
       return 0;
@@ -570,7 +603,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         write,
         new OrgChangeService(database).markApplied(proposalId, {
           workspace_id: selectedWorkspace,
-          actor: cliPrincipal.actor,
+          actor: cliPrincipal().actor,
         }),
       );
       return 0;
@@ -602,7 +635,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         write,
         new OrgChangeService(database).revertApplication(application.id, {
           workspace_id: selectedWorkspace,
-          actor: cliPrincipal.actor,
+          actor: cliPrincipal().actor,
         }),
       );
       return 0;
@@ -618,7 +651,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         write,
         new OrgChangeService(database).withdraw(proposalId, {
           workspace_id: selectedWorkspace,
-          actor: cliPrincipal.actor,
+          actor: cliPrincipal().actor,
         }),
       );
       return 0;
@@ -642,7 +675,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
             ...(owner ? { owner_id: owner } : {}),
             ...(limit !== null ? { limit: Number(limit) } : {}),
           },
-          memoryReviewOption(args),
+          memoryReviewOption(args, () => cliPrincipal().actor),
         ),
       );
       return 0;
@@ -650,7 +683,11 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
     if (command === "memory" && (subcommand === "list" || subcommand === "")) {
       printJson(
         write,
-        new MemoryRetrievalService(database).list(selectedWorkspace, {}, memoryReviewOption(args)),
+        new MemoryRetrievalService(database).list(
+          selectedWorkspace,
+          {},
+          memoryReviewOption(args, () => cliPrincipal().actor),
+        ),
       );
       return 0;
     }
@@ -660,7 +697,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       // bare `attested_by` on the entry confers nothing without this event.
       const entryId = positions[2];
       if (!entryId) {
-        throw new Error("usage: memory attest <entry_id> --by <operator>");
+        throw new Error("usage: memory attest <entry_id>");
       }
       const attestEntry = new MemoryEntryStore(database).get(entryId);
       if (!attestEntry || attestEntry.workspace_id !== selectedWorkspace) {
@@ -669,7 +706,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       printJson(
         write,
         new PromotionService(database).attestMemory(entryId, {
-          attested_by: requireOption(args, "--by"),
+          attested_by: cliPrincipal().actor,
         }),
       );
       return 0;
@@ -678,9 +715,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       const candidateId = positions[2];
       const sourceMemoryId = positions[3];
       if (!candidateId || !sourceMemoryId) {
-        throw new Error(
-          "usage: memory corroborate <candidate_id> <source_memory_id> --by <actor_id>",
-        );
+        throw new Error("usage: memory corroborate <candidate_id> <source_memory_id>");
       }
       const corroborateCandidate = new PromotionCandidateStore(database).get(candidateId);
       if (!corroborateCandidate || corroborateCandidate.workspace_id !== selectedWorkspace) {
@@ -691,7 +726,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         write,
         new PromotionService(database).recordCorroboration(candidateId, {
           source_memory_entry: sourceMemoryId,
-          corroborated_by: requireOption(args, "--by"),
+          corroborated_by: cliPrincipal().actor,
           run_id: optionValue(args, "--run"),
           note: optionValue(args, "--note"),
           corroboration_id: optionValue(args, "--id"),
@@ -704,7 +739,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       printJson(
         write,
         new OrgControlService(database).pauseApply(selectedWorkspace, {
-          actor: cliPrincipal.actor,
+          actor: cliPrincipal().actor,
           reason: positions[2] ?? null,
         }),
       );
@@ -714,7 +749,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       printJson(
         write,
         new OrgControlService(database).resumeApply(selectedWorkspace, {
-          actor: cliPrincipal.actor,
+          actor: cliPrincipal().actor,
         }),
       );
       return 0;
@@ -738,7 +773,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           write,
           narrowing.ratifyPolicy({
             workspace_id: selectedWorkspace,
-            ratified_by: requireOption(args, "--by"),
+            ratified_by: cliPrincipal().actor,
             rejection_threshold: intOption("--rejections", 1),
             violation_threshold: intOption("--violations", 1),
             window_seconds: intOption("--window", 1),
@@ -767,7 +802,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         printJson(
           write,
           narrowing.lift(suspensionId, {
-            actor: requireOption(args, "--by"),
+            actor: cliPrincipal().actor,
             note: requireOption(args, "--note"),
           }),
         );
@@ -786,7 +821,10 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       if (approval?.payload.target_type === "capability_call" && approval.run_id === RUN_ID) {
         printJson(
           write,
-          await spine.resumeApprovedCapability(approvalId, { workspace_id: selectedWorkspace }),
+          await spine.resumeApprovedCapability(approvalId, {
+            actor: cliPrincipal().actor,
+            workspace_id: selectedWorkspace,
+          }),
         );
       } else if (
         approval?.payload.target_type === "capability_call" &&
@@ -796,7 +834,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       } else if (approval?.payload.target_type === "capability_call") {
         new ApprovalService(database).approve(approvalId, {
           workspace_id: selectedWorkspace,
-          actor: cliPrincipal.actor,
+          actor: cliPrincipal().actor,
         });
         printJson(
           write,
@@ -806,13 +844,13 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         );
       } else if (approvalId === PROMOTION_APPROVAL_ID) {
         requireDefaultWorkspace(selectedWorkspace);
-        printJson(write, spine.resumeDemo(approvalId));
+        printJson(write, spine.resumeDemo(approvalId, { actor: cliPrincipal().actor }));
       } else {
         printJson(
           write,
           createApprovalServiceWithApplications(database).approve(approvalId, {
             workspace_id: selectedWorkspace,
-            actor: cliPrincipal.actor,
+            actor: cliPrincipal().actor,
           }),
         );
       }
@@ -830,6 +868,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       }
       const rejected = approvalService.reject(approvalId, {
         workspace_id: selectedWorkspace,
+        actor: cliPrincipal().actor,
       });
       printJson(
         write,

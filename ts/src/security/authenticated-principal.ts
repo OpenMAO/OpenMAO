@@ -1,7 +1,13 @@
-import { type Database, PrincipalKeyStore, PrincipalStore } from "../persistence/index.js";
+import { utcNow, WorkspaceSchema } from "../contracts/index.js";
+import {
+  type Database,
+  PrincipalKeyStore,
+  PrincipalStore,
+  WorkspaceStore,
+} from "../persistence/index.js";
 import type { PrincipalKind } from "../persistence/principals.js";
 import { PrincipalAuthService, type ResolvedPrincipalIdentity } from "./principal-auth.js";
-import { readProfileFile } from "./principal-bootstrap.js";
+import { ensureRootOperator, readProfileFile } from "./principal-bootstrap.js";
 
 /**
  * The single authenticated-identity shape the whole boundary resolves to, so
@@ -23,31 +29,42 @@ export type AuthenticatedPrincipal = {
 };
 
 /**
- * The pre-cutover CLI identity. Until M4, `resolveCliPrincipal` must yield
- * exactly this so no command's observable behaviour changes; the point of the
- * abstraction is that M4 becomes a change in one function, not thirteen.
- */
-export const LEGACY_CLI_ACTOR = "cli_operator";
-
-/**
- * The one resolver every CLI actor call site goes through. M3 behaviour is
- * deliberately the legacy hardcoded identity; the database parameter exists so
- * M4 can resolve a real principal here without touching any call site.
+ * The one resolver every CLI actor call site goes through. Identity is real:
+ * the operator profile's token is resolved through the ordinary credential
+ * path, so the actor every command records is the stored principal's id —
+ * never a typed-in name.
+ *
+ * When no usable profile exists, the resolver runs the M3 root-of-trust
+ * ceremony (ensureRootOperator) and authenticates with the identity it
+ * establishes. The ceremony is idempotent on its own prior state, refuses to
+ * bootstrap over a mismatched identity, and refuses outright under
+ * production signals — so `make demo` stays one command in development while
+ * no production deployment can silently manufacture a root of trust.
  */
 export function resolveCliPrincipal(
   database: Database,
   workspaceId: string,
+  keysDir: string,
 ): AuthenticatedPrincipal {
-  void database;
-  return {
-    principal_id: LEGACY_CLI_ACTOR,
-    workspace_id: workspaceId,
-    kind: "human",
-    actor: LEGACY_CLI_ACTOR,
-    key_id: null,
-    can_sign: false,
-    dev_bootstrap: false,
-  };
+  const existing = authenticateFromProfile(database, keysDir);
+  if (existing && existing.workspace_id === workspaceId) {
+    return existing;
+  }
+  // The principals tables FK to workspaces, so the ceremony needs the row.
+  const workspaces = new WorkspaceStore(database);
+  if (!workspaces.get(workspaceId)) {
+    workspaces.save(
+      WorkspaceSchema.parse({ id: workspaceId, name: workspaceId, created_at: utcNow() }),
+    );
+  }
+  ensureRootOperator({ database, workspaceId, keysDir });
+  const principal = authenticateFromProfile(database, keysDir);
+  if (!principal || principal.workspace_id !== workspaceId) {
+    throw new Error(
+      "no authenticated operator profile for this workspace; run `principals init` first",
+    );
+  }
+  return principal;
 }
 
 /**

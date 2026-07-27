@@ -194,10 +194,14 @@ export class OpenMaoLocalClient {
         external_url: null,
       },
       actor: input.actor ?? {
-        actor_type: this.context.actor_type ?? "operator",
+        // Provenance only: the recording authority is `recorded_by`, and an
+        // SDK process is never an OpenMAO operator, so the default ref can
+        // never claim operator authority.
+        actor_type: this.context.actor_type ?? "system",
         actor_id: this.context.actor,
         display_name: null,
       },
+      recorded_by: this.context.actor,
     });
   }
 

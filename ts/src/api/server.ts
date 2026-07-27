@@ -1,4 +1,3 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   createServer as createHttpServer,
   type IncomingMessage,
@@ -48,6 +47,8 @@ import {
   materializeRejectedCapabilityApproval,
 } from "../runtime/capabilities.js";
 import { openLocalDatabase } from "../runtime/local.js";
+import { enrichPrincipalIdentity } from "../security/authenticated-principal.js";
+import { PrincipalAuthService } from "../security/principal-auth.js";
 import { SensitiveMaterialError, safeErrorMessage } from "../security/sensitive-material.js";
 import { WorkerAuthService } from "../security/worker-auth.js";
 import {
@@ -68,17 +69,19 @@ import { consoleHtml } from "./console.js";
 
 type ServerOptions = {
   dbPath?: string;
-  operatorToken?: string;
-  workspaceId?: string;
 };
 
 const DEFAULT_HTTP_HOST = "127.0.0.1";
-const TOKEN_HEADER = "x-openmao-operator-token";
+const PRINCIPAL_TOKEN_HEADER = "x-openmao-principal-token";
 const WORKER_TOKEN_HEADER = "x-openmao-worker-token";
-const ACTOR_HEADER = "x-openmao-actor";
 const WORKSPACE_HEADER = "x-openmao-workspace";
 const LEGACY_WORKSPACE_HEADER = "x-openmao-workspace-id";
-const CONSOLE_ACTOR = "local_operator";
+// Self-asserted identity is gone. These headers are not ignored — a caller
+// presenting one is attempting the spoof this boundary exists to close, and
+// the request is refused with 400 even when it carries a valid credential.
+// The list is a permanent regression fence: do not remove entries.
+const ACTOR_HEADER = "x-openmao-actor";
+const REJECTED_HEADERS: readonly string[] = [ACTOR_HEADER, "x-openmao-operator-token"];
 
 function sendJson(response: ServerResponse, status: number, value: unknown): void {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
@@ -165,29 +168,26 @@ function headerValue(request: IncomingMessage, name: string): string | null {
   return raw ?? null;
 }
 
-// Constant-time operator-token comparison: hash both sides to a fixed-length digest so neither the
-// token length nor a prefix match is observable through response timing.
-function tokenMatches(provided: string | null, expected: string): boolean {
-  if (provided === null) {
-    return false;
-  }
-  return timingSafeEqual(
-    createHash("sha256").update(provided).digest(),
-    createHash("sha256").update(expected).digest(),
-  );
-}
-
-type Principal = { kind: "operator" } | { kind: "worker"; workerId: string };
+/**
+ * The authenticated boundary principal. Every variant carries the stable
+ * principal id the request's authority derives from; `actor` on the context
+ * is always derived from it, never from a caller-supplied value. An operator
+ * is a registry principal resolved from its credential (key id from the
+ * stored enrolment, when one is active); a worker's principal id is its
+ * worker id — the worker-token path was already principal-shaped (#127).
+ */
+type Principal =
+  | { kind: "operator"; principalId: string; keyId: string | null }
+  | { kind: "worker"; workerId: string; principalId: string; keyId: string | null };
 
 type RequestContext = {
   actor: string;
-  explicitWorkspace: boolean;
   workspaceId: string;
   principal: Principal;
 };
 
 // A worker token is permitted ONLY these routes; everything else (envelope issuance, approvals, and
-// every admin/read-all route) requires the operator token. Default-deny for workers.
+// every admin/read-all route) requires an operator principal credential. Default-deny for workers.
 function isWorkerAllowed(method: string, pathname: string): boolean {
   if (method === "GET") {
     return (
@@ -203,31 +203,58 @@ function isWorkerAllowed(method: string, pathname: string): boolean {
   return false;
 }
 
-function requestContext(
+/**
+ * Resolves the authenticated principal for a request. There is no shared
+ * operator token and no self-asserted actor: a principal credential resolves
+ * through PrincipalAuthService, which FORCES the identity and workspace from
+ * the stored credential row, and the worker-token path forces them from the
+ * stored worker credential the same way. Fails closed: a retired
+ * self-assertion header is a 400 (presenting it is a spoof attempt, never a
+ * hint), anything unauthenticated is a 403.
+ */
+function authenticateContext(
   request: IncomingMessage,
   response: ServerResponse,
   url: URL,
-  options: Required<Pick<ServerOptions, "operatorToken" | "workspaceId">>,
   database: Database,
 ): RequestContext | null {
-  // Operator token → full authority. Actor + workspace come from headers as before.
-  if (tokenMatches(headerValue(request, TOKEN_HEADER), options.operatorToken)) {
-    const actor = headerValue(request, ACTOR_HEADER);
-    // Reject missing AND whitespace-only actors: a blank actor cannot anchor an audit trail, so the
-    // operator boundary treats "   " exactly like an absent header (same 400 / missing_actor shape).
-    if (!actor || actor.trim().length === 0) {
-      sendJson(response, 400, { error: "missing_actor" });
+  for (const rejected of REJECTED_HEADERS) {
+    if (headerValue(request, rejected) !== null) {
+      sendJson(response, 400, {
+        error: rejected === ACTOR_HEADER ? "actor_header_rejected" : "operator_token_removed",
+        message: `${rejected} is not accepted: identity is established by a principal credential (${PRINCIPAL_TOKEN_HEADER})`,
+      });
       return null;
     }
+  }
+  const identity = new PrincipalAuthService(database).resolve(
+    headerValue(request, PRINCIPAL_TOKEN_HEADER),
+  );
+  if (identity) {
+    const principal = enrichPrincipalIdentity(database, identity);
+    if (!principal) {
+      sendJson(response, 403, { error: "forbidden" });
+      return null;
+    }
+    // The workspace is forced from the stored credential. An explicit
+    // selection is honoured only when it AGREES — a conflicting one would be
+    // an attempt to act in a workspace the credential does not bind.
     const selectedWorkspace =
       headerValue(request, WORKSPACE_HEADER) ??
       headerValue(request, LEGACY_WORKSPACE_HEADER) ??
       url.searchParams.get("workspace_id");
+    if (selectedWorkspace !== null && selectedWorkspace !== principal.workspace_id) {
+      sendJson(response, 400, { error: "workspace_mismatch" });
+      return null;
+    }
     return {
-      actor,
-      workspaceId: selectedWorkspace ?? options.workspaceId,
-      explicitWorkspace: selectedWorkspace !== null,
-      principal: { kind: "operator" },
+      actor: principal.actor,
+      workspaceId: principal.workspace_id,
+      principal: {
+        kind: "operator",
+        principalId: principal.principal_id,
+        keyId: principal.key_id,
+      },
     };
   }
   // Worker token → a scoped principal. The actor and workspace are FORCED to the resolved worker; a
@@ -239,8 +266,12 @@ function requestContext(
     return {
       actor: workerPrincipal.worker_id,
       workspaceId: workerPrincipal.workspace_id,
-      explicitWorkspace: true,
-      principal: { kind: "worker", workerId: workerPrincipal.worker_id },
+      principal: {
+        kind: "worker",
+        workerId: workerPrincipal.worker_id,
+        principalId: workerPrincipal.worker_id,
+        keyId: null,
+      },
     };
   }
   sendJson(response, 403, { error: "forbidden" });
@@ -283,18 +314,6 @@ function workForContext(database: Database, workId: string, workspaceId: string)
   return work?.workspace_id === workspaceId ? work : null;
 }
 
-function requireUnambiguousWriteWorkspace(
-  response: ServerResponse,
-  database: Database,
-  context: { explicitWorkspace: boolean },
-): boolean {
-  if (!context.explicitWorkspace && new WorkspaceStore(database).listAll().length > 1) {
-    sendJson(response, 400, { error: "workspace_required" });
-    return false;
-  }
-  return true;
-}
-
 async function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
@@ -321,14 +340,6 @@ function stringField(value: unknown): string | null {
 }
 
 export function createServer(options: ServerOptions = {}) {
-  const resolvedOptions = {
-    operatorToken:
-      options.operatorToken ??
-      process.env.OPENMAO_OPERATOR_TOKEN ??
-      randomBytes(16).toString("hex"),
-    workspaceId: options.workspaceId ?? WORKSPACE_ID,
-  };
-
   return createHttpServer(async (request: IncomingMessage, response: ServerResponse) => {
     if (!isLoopbackAddress(request.socket.remoteAddress)) {
       sendJson(response, 403, { error: "loopback_only" });
@@ -351,16 +362,14 @@ export function createServer(options: ServerOptions = {}) {
           consoleHtml({
             RUN_ID,
             COORDINATOR_AGENT_ID,
-            TOKEN_HEADER,
-            ACTOR_HEADER,
-            CONSOLE_ACTOR,
+            TOKEN_HEADER: PRINCIPAL_TOKEN_HEADER,
             WORKSPACE_ID,
           }),
         );
         return;
       }
 
-      const context = requestContext(request, response, url, resolvedOptions, database);
+      const context = authenticateContext(request, response, url, database);
       if (!context) {
         return;
       }
@@ -376,9 +385,6 @@ export function createServer(options: ServerOptions = {}) {
       }
 
       if (request.method === "POST" && url.pathname === "/runs/demo") {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         if (!requireDemoWorkspace(response, context.workspaceId)) {
           return;
         }
@@ -386,9 +392,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && url.pathname === "/runs/demo/approve") {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         if (!requireDemoWorkspace(response, context.workspaceId)) {
           return;
         }
@@ -447,9 +450,6 @@ export function createServer(options: ServerOptions = {}) {
       // scope, worker grant, credential-handle binding, side-effect/approval gate, idempotent
       // at-most-once execution). A hostile body cannot escape those bounds; see #92.
       if (request.method === "POST" && url.pathname === "/capability-calls") {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         const body = await readJsonBody(request);
         const externalActor = body.external_actor;
         // A worker principal can only act AS ITSELF — its identity is forced from the authenticated
@@ -546,9 +546,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && url.pathname === "/workers") {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         const body = await readJsonBody(request);
         sendJson(
           response,
@@ -568,9 +565,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && url.pathname === "/workers/reference-demo") {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         if (!requireDemoWorkspace(response, context.workspaceId)) {
           return;
         }
@@ -578,9 +572,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && url.pathname === "/workers/reference-demo/approve") {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         if (!requireDemoWorkspace(response, context.workspaceId)) {
           return;
         }
@@ -596,9 +587,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && url.pathname === "/ingestion") {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         const body = await readJsonBody(request);
         const source = body.source && typeof body.source === "object" ? body.source : {};
         const actor = body.actor && typeof body.actor === "object" ? body.actor : {};
@@ -619,6 +607,18 @@ export function createServer(options: ServerOptions = {}) {
         }
         if (!actorType || !actorId) {
           sendJson(response, 400, { error: "missing_actor_identity" });
+          return;
+        }
+        // The body's actor is foreign PROVENANCE, never authority: the
+        // recorded event's actor is the authenticated principal, and the ref
+        // lands in payload.actor_ref. An inbound event claiming OpenMAO
+        // operator authority is refused.
+        if (actorType === "operator") {
+          sendJson(response, 400, {
+            error: "operator_actor_forbidden",
+            message:
+              "an inbound foreign event cannot claim OpenMAO operator authority (actor_type: operator)",
+          });
           return;
         }
         if (!idempotencyKey) {
@@ -653,6 +653,7 @@ export function createServer(options: ServerOptions = {}) {
                 ? (payload as Record<string, unknown>)
                 : {},
             idempotency_key: idempotencyKey,
+            recorded_by: context.actor,
           }),
         );
         return;
@@ -672,9 +673,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && approvalRoute.runResumeId) {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         if (!runForContext(database, approvalRoute.runResumeId, context.workspaceId)) {
           sendNotFound(response);
           return;
@@ -721,9 +719,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && url.pathname === "/work") {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         const body = await readJsonBody(request);
         sendJson(
           response,
@@ -754,9 +749,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && approvalRoute.workId && url.pathname.endsWith("/assign")) {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         const body = await readJsonBody(request);
         sendJson(
           response,
@@ -773,9 +765,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && approvalRoute.workId && url.pathname.endsWith("/status")) {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         const body = await readJsonBody(request);
         sendJson(
           response,
@@ -792,9 +781,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && approvalRoute.workId && url.pathname.endsWith("/review")) {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         const body = await readJsonBody(request);
         sendJson(
           response,
@@ -826,9 +812,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && approvalRoute.workOutcomeId) {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         const body = await readJsonBody(request);
         const output = body.output;
         sendJson(
@@ -879,9 +862,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && approvalRoute.workEnvelopeId) {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         const body = await readJsonBody(request);
         const input = body.input;
         try {
@@ -983,9 +963,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && approvalRoute.promotionCorroborateId) {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         const body = await readJsonBody(request);
         const sourceMemoryEntry =
           typeof body.source_memory_entry === "string" ? body.source_memory_entry : "";
@@ -1024,9 +1001,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && url.pathname === "/learning/scan") {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         sendJson(response, 200, new LearningService(database).scan(context.workspaceId));
         return;
       }
@@ -1040,9 +1014,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && approvalRoute.learningProposalApplyId) {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         sendJson(
           response,
           200,
@@ -1072,9 +1043,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && url.pathname === "/cos/init") {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         sendJson(
           response,
           200,
@@ -1083,9 +1051,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && url.pathname === "/cos/tick") {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         sendJson(
           response,
           200,
@@ -1097,9 +1062,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && approvalRoute.cosNotificationReadId) {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         const notificationId = approvalRoute.cosNotificationReadId;
         const chiefOfStaff = new ChiefOfStaffService(database);
         if (!chiefOfStaff.getNotification(context.workspaceId, notificationId)) {
@@ -1126,9 +1088,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "POST" && approvalRoute.approvalId) {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         const approval = approvalForContext(
           database,
           approvalRoute.approvalId,
@@ -1215,9 +1174,6 @@ export function createServer(options: ServerOptions = {}) {
         return;
       }
       if (request.method === "GET" && url.pathname === "/world") {
-        if (!requireUnambiguousWriteWorkspace(response, database, context)) {
-          return;
-        }
         ensureDefaultWorkspace(spine, database, context.workspaceId);
         const runId = url.searchParams.get("run_id");
         sendJson(
@@ -1256,11 +1212,10 @@ export function createServer(options: ServerOptions = {}) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.env.PORT ?? "8000");
-  const operatorToken = process.env.OPENMAO_OPERATOR_TOKEN ?? randomBytes(16).toString("hex");
-  createServer({ operatorToken }).listen(port, DEFAULT_HTTP_HOST, () => {
+  createServer().listen(port, DEFAULT_HTTP_HOST, () => {
     console.log(`OpenMAO API/console listening on http://${DEFAULT_HTTP_HOST}:${port}`);
-    if (!process.env.OPENMAO_OPERATOR_TOKEN) {
-      console.log(`OpenMAO local operator token: ${operatorToken}`);
-    }
+    console.log(
+      `Authenticate with a principal credential in the ${PRINCIPAL_TOKEN_HEADER} header (see \`principals init\`).`,
+    );
   });
 }

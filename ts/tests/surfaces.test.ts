@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createServer } from "../src/api/server.js";
 import { runCli } from "../src/cli.js";
 import { WorkItemSchema, WorkspaceSchema } from "../src/contracts/index.js";
+import { OrgChangeService } from "../src/org/index.js";
 import { Database, WorkItemStore, WorkspaceStore } from "../src/persistence/index.js";
 import {
   COORDINATOR_AGENT_ID,
@@ -21,14 +22,10 @@ import {
   REFERENCE_RUN_ID,
   REFERENCE_WORKER_ID,
 } from "../src/workers/index.js";
+import { principalHeaders, seedPrincipalAtPath } from "./helpers/principals.js";
 
 let tmpRoot: string;
 let dbPath: string;
-const operatorToken = "test-operator-token";
-const operatorHeaders = {
-  "x-openmao-actor": "test_operator",
-  "x-openmao-operator-token": operatorToken,
-};
 
 beforeEach(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), "openmao-ts-surfaces-"));
@@ -464,19 +461,29 @@ describe("TypeScript operator surfaces", () => {
   });
 
   it("serves demo, approvals, world, and console over HTTP", async () => {
-    const server = createServer({ dbPath, operatorToken });
+    const principal = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
+    const operatorHeaders = principalHeaders(principal.token);
+    const server = createServer({ dbPath });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as AddressInfo;
     const baseUrl = `http://127.0.0.1:${address.port}`;
     try {
       const rejected = await fetch(`${baseUrl}/runs/demo`, { method: "POST" });
-      const missingActor = await fetch(`${baseUrl}/runs/demo`, {
+      // A forged actor header is a spoof attempt: 400 even alongside a valid
+      // credential, and 400 without one — never ignored, never a hint.
+      const forgedActorWithToken = await fetch(`${baseUrl}/runs/demo`, {
         method: "POST",
-        headers: { "x-openmao-operator-token": operatorToken },
+        headers: { ...operatorHeaders, "x-openmao-actor": "mallory" },
       });
-      const blankActor = await fetch(`${baseUrl}/runs/demo`, {
+      const forgedActorOnly = await fetch(`${baseUrl}/runs/demo`, {
         method: "POST",
-        headers: { "x-openmao-operator-token": operatorToken, "x-openmao-actor": "   " },
+        headers: { "x-openmao-actor": "mallory" },
+      });
+      // The retired shared operator token is not a fallback path: presenting
+      // it is refused outright.
+      const legacyOperatorToken = await fetch(`${baseUrl}/runs/demo`, {
+        method: "POST",
+        headers: { "x-openmao-operator-token": "test-operator-token" },
       });
       const demo = (await fetch(`${baseUrl}/runs/demo`, {
         method: "POST",
@@ -526,7 +533,7 @@ describe("TypeScript operator surfaces", () => {
       const promotions = (await fetch(`${baseUrl}/memory/promotions`, {
         headers: operatorHeaders,
       }).then((response) => response.json())) as unknown[];
-      const wrongWorkspaceEvents = (await fetch(
+      const wrongWorkspaceEvents = await fetch(
         `${baseUrl}/events?run_id=${RUN_ID}&workspace_id=${WORKSPACE_ID}`,
         {
           headers: {
@@ -534,7 +541,7 @@ describe("TypeScript operator surfaces", () => {
             "x-openmao-workspace": "ws_22222222222222222222222222222222",
           },
         },
-      ).then((response) => response.json())) as unknown[];
+      );
       const wrongWorkspacePathEvents = await fetch(`${baseUrl}/workspaces/${WORKSPACE_ID}/events`, {
         headers: {
           ...operatorHeaders,
@@ -569,8 +576,12 @@ describe("TypeScript operator surfaces", () => {
       const consoleHtml = await fetch(`${baseUrl}/console`).then((response) => response.text());
 
       expect(rejected.status).toBe(403);
-      expect(missingActor.status).toBe(400);
-      expect(blankActor.status).toBe(400);
+      expect(forgedActorWithToken.status).toBe(400);
+      expect(await forgedActorWithToken.json()).toMatchObject({ error: "actor_header_rejected" });
+      expect(forgedActorOnly.status).toBe(400);
+      expect(await forgedActorOnly.json()).toMatchObject({ error: "actor_header_rejected" });
+      expect(legacyOperatorToken.status).toBe(400);
+      expect(await legacyOperatorToken.json()).toMatchObject({ error: "operator_token_removed" });
       expect(demo.status).toBe("suspended_approval");
       expect(approvals.at(0)?.id).toBe(PROMOTION_APPROVAL_ID);
       expect(workspaces.at(0)?.id).toBe(WORKSPACE_ID);
@@ -580,25 +591,27 @@ describe("TypeScript operator surfaces", () => {
       expect(capabilities).toHaveLength(1);
       expect(runs).toHaveLength(1);
       expect(run.id).toBe(RUN_ID);
-      expect(wrongWorkspaceRun.status).toBe(404);
-      expect(wrongWorkspaceRunBody).toEqual({ error: "not_found" });
-      expect(wrongWorkspaceResume.status).toBe(404);
+      // The credential forces the workspace; a conflicting explicit selection
+      // fails closed with 400 before routing — there is no wrong-workspace 404.
+      expect(wrongWorkspaceRun.status).toBe(400);
+      expect(wrongWorkspaceRunBody).toEqual({ error: "workspace_mismatch" });
+      expect(wrongWorkspaceResume.status).toBe(400);
       expect(work).toHaveLength(1);
       expect(individualMemory.length).toBeGreaterThan(0);
       expect(promotions).toHaveLength(1);
-      expect(wrongWorkspaceEvents).toEqual([]);
-      expect(wrongWorkspacePathEvents.status).toBe(404);
+      expect(wrongWorkspaceEvents.status).toBe(400);
+      expect(wrongWorkspacePathEvents.status).toBe(400);
       expect(completed.status).toBe("completed");
       expect(collectiveMemory).toHaveLength(1);
       expect(world.latest_run_status).toBe("completed");
       expect(runEvents.length).toBeGreaterThan(0);
       expect(runTraces.length).toBeGreaterThan(0);
-      expect(wrongWorkspaceTraces.status).toBe(404);
+      expect(wrongWorkspaceTraces.status).toBe(400);
       expect(workspaceEvents.length).toBeGreaterThan(runEvents.length);
       expect(consoleHtml).toContain("OpenMAO Console");
       expect(consoleHtml).toContain('data-view="traces"');
       expect(consoleHtml).toContain("/approvals/");
-      expect(consoleHtml).not.toContain(operatorToken);
+      expect(consoleHtml).not.toContain(principal.token);
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
@@ -606,30 +619,149 @@ describe("TypeScript operator surfaces", () => {
     }
   });
 
-  it("maps proposer self-approval to 409 over HTTP", async () => {
-    const server = createServer({ dbPath, operatorToken });
+  it("closes the self-assertion channel on POST /ingestion", async () => {
+    const principal = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
+    const operatorHeaders = principalHeaders(principal.token);
+    const server = createServer({ dbPath });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const jsonHeaders = { ...operatorHeaders, "content-type": "application/json" };
+    try {
+      // An inbound foreign event can never claim OpenMAO operator authority.
+      const operatorClaim = await fetch(`${baseUrl}/ingestion`, {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          kind: "event",
+          source: { provider: "foreign", external_id: "foreign-system" },
+          actor: { actor_type: "operator", actor_id: "self-proclaimed-operator" },
+          idempotency_key: "foreign:operator-claim",
+        }),
+      });
+      // Any other foreign actor type is accepted — but the EVENT's actor is
+      // the authenticated principal, and the body-named actor is provenance
+      // riding payload.actor_ref.
+      const accepted = await fetch(`${baseUrl}/ingestion`, {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          kind: "event",
+          source: { provider: "foreign", external_id: "foreign-system" },
+          actor: { actor_type: "system", actor_id: "foreign-monitor" },
+          idempotency_key: "foreign:monitor-observation",
+        }),
+      });
+      const events = (await fetch(`${baseUrl}/events`, { headers: operatorHeaders }).then(
+        (response) => response.json(),
+      )) as Array<{
+        kind: string;
+        actor: string;
+        payload: { actor_ref: { actor_type: string; actor_id: string } | null };
+      }>;
+      const ingestionEvent = events.find((event) => event.kind === "ingestion.recorded");
+
+      expect(operatorClaim.status).toBe(400);
+      expect(await operatorClaim.json()).toMatchObject({ error: "operator_actor_forbidden" });
+      expect(accepted.status).toBe(201);
+      expect(ingestionEvent?.actor).toBe(principal.principal_id);
+      expect(ingestionEvent?.payload.actor_ref).toMatchObject({
+        actor_type: "system",
+        actor_id: "foreign-monitor",
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it("records the authenticated principal, never a supplied name, on CLI writes", async () => {
+    // The retired --by flag is not ignored: presenting it is a hard error
+    // naming the replacement, so a scripted spoof fails loudly.
+    await expect(
+      runCli(["memory", "attest", "mementry_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "--by", "mallory"], {
+        dbPath,
+      }),
+    ).rejects.toThrow(/--by is no longer accepted/);
+
+    expect(
+      await runCli(
+        [
+          "work",
+          "create",
+          "--title",
+          "Authored",
+          "--objective",
+          "Authored objective.",
+          "--owner",
+          "ops",
+        ],
+        { dbPath },
+      ),
+    ).toBe(0);
+    const eventsOutput = capture();
+    expect(await runCli(["events"], { dbPath, write: eventsOutput.write })).toBe(0);
+    const events = JSON.parse(eventsOutput.lines[0] ?? "[]") as Array<{
+      kind: string;
+      actor: string;
+    }>;
+    const created = events.find((event) => event.kind === "work.created");
+    // The recorded actor is the authenticated principal's stored id — the
+    // legacy self-asserted CLI identity is gone from the record.
+    expect(created?.actor).toMatch(/^principal_[0-9a-f]{32}$/);
+    expect(new Set(events.map((event) => event.actor)).has("cli_operator")).toBe(false);
+  });
+
+  it("refuses workers mint-token without an authenticated operator profile", async () => {
+    await expect(
+      runCli(["workers", "mint-token", "worker_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], { dbPath }),
+    ).rejects.toThrow("no authenticated operator profile");
+  });
+
+  it("enforces separation of duties between two authenticated principals over HTTP", async () => {
+    // The retired version of this test spoofed `x-openmao-actor` to pose as
+    // the proposer. Self-asserted identity is gone, so the demonstrable
+    // separation of duties is now between two real principals: the requester
+    // approving their own request is a 409, a second principal's token is a 200.
+    const requester = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Requesting Operator");
+    const approver = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Approving Operator");
+    const seeded = (() => {
+      const database = new Database(dbPath);
+      database.initialize();
+      try {
+        return new OrgChangeService(database).propose({
+          id: "orgchange_50d50d50d50d50d50d50d50d50d50d50",
+          workspace_id: WORKSPACE_ID,
+          proposed_by: requester.principal_id,
+          change_type: "workflow",
+          rationale: "Separate the requester from the approver.",
+        });
+      } finally {
+        database.close();
+      }
+    })();
+    const server = createServer({ dbPath });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as AddressInfo;
     const baseUrl = `http://127.0.0.1:${address.port}`;
     try {
-      // Suspend the demo run at the promotion gate; the approval is requested_by COORDINATOR_AGENT_ID.
-      const demo = (await fetch(`${baseUrl}/runs/demo`, {
+      const selfApproval = await fetch(`${baseUrl}/approvals/${seeded.approval_id}/approve`, {
         method: "POST",
-        headers: operatorHeaders,
-      }).then((response) => response.json())) as { status: string };
-      expect(demo.status).toBe("suspended_approval");
-
-      // The proposer approving their own request is a separation-of-duties conflict: 409, not 500,
-      // and the body must carry the stable code without leaking the internal exception message (#101).
-      const selfApproval = await fetch(`${baseUrl}/approvals/${PROMOTION_APPROVAL_ID}/approve`, {
-        method: "POST",
-        headers: { ...operatorHeaders, "x-openmao-actor": COORDINATOR_AGENT_ID },
+        headers: principalHeaders(requester.token),
       });
       const selfApprovalBody = (await selfApproval.json()) as { error: string; message?: string };
+      const approved = await fetch(`${baseUrl}/approvals/${seeded.approval_id}/approve`, {
+        method: "POST",
+        headers: principalHeaders(approver.token),
+      });
+      const approvedBody = (await approved.json()) as { status: string };
 
       expect(selfApproval.status).toBe(409);
       expect(selfApproval.status).not.toBe(500);
       expect(selfApprovalBody.error).toBe("self_approval_forbidden");
+      expect(approved.status).toBe(200);
+      expect(approvedBody.status).toBe("approved");
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
@@ -638,7 +770,9 @@ describe("TypeScript operator surfaces", () => {
   });
 
   it("serves work substrate operations over HTTP", async () => {
-    const server = createServer({ dbPath, operatorToken });
+    const principal = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
+    const operatorHeaders = principalHeaders(principal.token);
+    const server = createServer({ dbPath });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as AddressInfo;
     const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -775,7 +909,7 @@ describe("TypeScript operator surfaces", () => {
       expect(invalidIngestion.status).toBe(400);
       expect(await invalidIngestion.json()).toEqual({ error: "missing_idempotency_key" });
       expect(envelopes).toHaveLength(1);
-      expect(wrongWorkspaceEnvelopes.status).toBe(404);
+      expect(wrongWorkspaceEnvelopes.status).toBe(400);
       expect(events.map((event) => event.kind)).toEqual(
         expect.arrayContaining([
           "worker.registered",
@@ -794,7 +928,9 @@ describe("TypeScript operator surfaces", () => {
   });
 
   it("serves learning scans and proposal review over HTTP", async () => {
-    const server = createServer({ dbPath, operatorToken });
+    const principal = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
+    const operatorHeaders = principalHeaders(principal.token);
+    const server = createServer({ dbPath });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as AddressInfo;
     const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -864,7 +1000,9 @@ describe("TypeScript operator surfaces", () => {
   });
 
   it("serves the reference worker gateway flow over HTTP", async () => {
-    const server = createServer({ dbPath, operatorToken });
+    const principal = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
+    const operatorHeaders = principalHeaders(principal.token);
+    const server = createServer({ dbPath });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as AddressInfo;
     const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -927,7 +1065,9 @@ describe("TypeScript operator surfaces", () => {
   });
 
   it("materializes rejected reference-worker capability results over HTTP", async () => {
-    const server = createServer({ dbPath, operatorToken });
+    const principal = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
+    const operatorHeaders = principalHeaders(principal.token);
+    const server = createServer({ dbPath });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as AddressInfo;
     const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -963,8 +1103,15 @@ describe("TypeScript operator surfaces", () => {
     }
   });
 
-  it("requires explicit workspace selection for writes once multiple workspaces exist", async () => {
-    const server = createServer({ dbPath, operatorToken });
+  it("binds the acting workspace to the credential even once multiple workspaces exist", async () => {
+    // The retired shared token needed an explicit workspace header to
+    // disambiguate writes (workspace_required). A principal credential BINDS
+    // the workspace, so the ambiguity cannot occur: unqualified requests act
+    // in the credential's workspace, and a conflicting explicit selection is
+    // a 400, never silent cross-workspace action.
+    const principal = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
+    const operatorHeaders = principalHeaders(principal.token);
+    const server = createServer({ dbPath });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as AddressInfo;
     const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -988,22 +1135,28 @@ describe("TypeScript operator surfaces", () => {
         database.close();
       }
 
-      const ambiguousApproval = await fetch(`${baseUrl}/runs/demo/approve`, {
+      const unqualifiedApproval = (await fetch(`${baseUrl}/runs/demo/approve`, {
         method: "POST",
         headers: operatorHeaders,
-      });
-      const ambiguousWorld = await fetch(`${baseUrl}/world`, { headers: operatorHeaders });
-      const explicitApproval = (await fetch(`${baseUrl}/runs/demo/approve`, {
+      }).then((response) => response.json())) as { status: string };
+      const unqualifiedWorld = await fetch(`${baseUrl}/world`, { headers: operatorHeaders });
+      const agreeingApproval = await fetch(`${baseUrl}/runs/demo/approve`, {
         method: "POST",
         headers: { ...operatorHeaders, "x-openmao-workspace": WORKSPACE_ID },
-      }).then((response) => response.json())) as { status: string };
+      });
+      const conflictingWorld = await fetch(`${baseUrl}/world`, {
+        headers: {
+          ...operatorHeaders,
+          "x-openmao-workspace": "ws_22222222222222222222222222222222",
+        },
+      });
 
       expect(demo.status).toBe("suspended_approval");
-      expect(ambiguousApproval.status).toBe(400);
-      expect(await ambiguousApproval.json()).toEqual({ error: "workspace_required" });
-      expect(ambiguousWorld.status).toBe(400);
-      expect(await ambiguousWorld.json()).toEqual({ error: "workspace_required" });
-      expect(explicitApproval.status).toBe("completed");
+      expect(unqualifiedApproval.status).toBe("completed");
+      expect(unqualifiedWorld.status).toBe(200);
+      expect(agreeingApproval.status).toBe(200);
+      expect(conflictingWorld.status).toBe(400);
+      expect(await conflictingWorld.json()).toEqual({ error: "workspace_mismatch" });
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));

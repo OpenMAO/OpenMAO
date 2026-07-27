@@ -1,5 +1,3 @@
-import { createPublicKey, verify as cryptoVerify } from "node:crypto";
-
 import { newId, utcNow } from "../contracts/index.js";
 import {
   type Database,
@@ -22,7 +20,9 @@ import {
   encodeSegment,
   mediaTypeForClass,
   payloadBytesForBody,
+  type SignedEnvelopeParts,
   type SignedObjectClass,
+  verifyObject,
 } from "./signing.js";
 import type { SigningBroker } from "./signing-broker.js";
 
@@ -109,24 +109,34 @@ function resolveStoredOperator(
 }
 
 /**
- * Verifies that a signature produced through custody actually verifies
- * against the operator key ENROLLED IN THE REGISTRY. This is the binding an
- * authority record claims: without it, an embedding caller could sign with
+ * Substantiates a produced envelope through the ONE registry-backed verifier
+ * (verifyObject): the signature must verify against the operator key ENROLLED
+ * IN THE REGISTRY, with the class, workspace, object, and signer bindings all
+ * derived from stored rows. Without this, an embedding caller could sign with
  * any broker it holds and attribute the mutation to an enrolled operator key.
+ * This is also verifyObject's production caller — the verifier the negative
+ * vectors pin is the verifier the authority path actually runs.
  */
-function producedSignatureVerifies(
-  publicKeyBase64Url: string,
-  signingInput: string,
-  signature: Buffer,
-): boolean {
-  try {
-    const publicKey = createPublicKey({
-      key: { kty: "OKP", crv: "Ed25519", x: publicKeyBase64Url },
-      format: "jwk",
-    });
-    return cryptoVerify(null, Buffer.from(signingInput, "utf8"), publicKey, signature);
-  } catch {
-    return false;
+function producedEnvelopeVerifies(input: {
+  database: Database;
+  workspaceId: string;
+  objectClass: SignedObjectClass;
+  objectId: string;
+  envelope: SignedEnvelopeParts;
+  now: string;
+}): void {
+  const verdict = verifyObject({
+    database: input.database,
+    workspaceId: input.workspaceId,
+    expectedClass: input.objectClass,
+    expectedObjectId: input.objectId,
+    envelope: input.envelope,
+    now: input.now,
+  });
+  if (!verdict.ok) {
+    throw new AuthorityMutationError(
+      `${input.objectClass} refused; the produced signature failed registry-backed verification (${verdict.reason}) — signing custody does not hold the claimed enrolled key`,
+    );
   }
 }
 
@@ -140,7 +150,7 @@ async function signWithOperatorKey(input: {
   objectClass: SignedObjectClass;
   keyId: string;
   body: Record<string, unknown>;
-}): Promise<{ signingInput: string; signature: Buffer }> {
+}): Promise<{ envelope: SignedEnvelopeParts }> {
   const headerSegment = encodeSegment(
     Buffer.from(dumpJson(buildProtectedHeader(input.objectClass, input.keyId)), "utf8"),
   );
@@ -150,7 +160,13 @@ async function signWithOperatorKey(input: {
   if (!signature) {
     throw new AuthorityMutationError("signing custody returned no signature for the operator key");
   }
-  return { signingInput, signature };
+  return {
+    envelope: {
+      protectedHeaderSegment: headerSegment,
+      payloadSegment,
+      signatureSegment: encodeSegment(signature),
+    },
+  };
 }
 
 /**
@@ -328,16 +344,17 @@ export async function attestPrincipalKey(input: {
       predicates,
     },
   });
-  // Substantiate before recording: the signature just produced must verify
-  // against the attester key enrolled in the registry. A broker that does
-  // not hold the key it claims produces a signature that fails here, and
-  // nothing is written.
-  if (!producedSignatureVerifies(operator.key.public_key, signed.signingInput, signed.signature)) {
-    throw new AuthorityMutationError(
-      "attestation refused; the produced signature does not verify against the enrolled attester key — signing custody does not hold the claimed key",
-    );
-  }
-  const signature = encodeSegment(signed.signature);
+  // Substantiate before recording: the envelope just produced must verify
+  // through the registry-backed verifier. A broker that does not hold the key
+  // it claims produces a signature that fails here, and nothing is written.
+  producedEnvelopeVerifies({
+    database: input.database,
+    workspaceId: input.workspaceId,
+    objectClass: "principal_enrolment",
+    objectId: input.subjectKeyId,
+    envelope: signed.envelope,
+    now,
+  });
   return input.database.transaction(() => {
     const attestation = new PrincipalKeyAttestationStore(input.database).record({
       id: newId("prinatt"),
@@ -345,7 +362,7 @@ export async function attestPrincipalKey(input: {
       subject_key_id: input.subjectKeyId,
       attester_key_id: operator.key.id,
       conditions_json: dumpJson(predicates),
-      signature,
+      signature: signed.envelope.signatureSegment,
       domain_tag: mediaTypeForClass("principal_enrolment"),
       attested_at: now,
     });
@@ -422,12 +439,14 @@ export async function revokePrincipalKey(input: {
       revoked_at: now,
     },
   });
-  if (!producedSignatureVerifies(operator.key.public_key, signed.signingInput, signed.signature)) {
-    throw new AuthorityMutationError(
-      "revocation refused; the produced signature does not verify against the enrolled revoker key — signing custody does not hold the claimed key",
-    );
-  }
-  const signature = encodeSegment(signed.signature);
+  producedEnvelopeVerifies({
+    database: input.database,
+    workspaceId: input.workspaceId,
+    objectClass: "revocation",
+    objectId: input.keyId,
+    envelope: signed.envelope,
+    now,
+  });
   return input.database.transaction(() => {
     const revocation = new PrincipalKeyRevocationStore(input.database).record({
       id: newId("prinrev"),
@@ -436,7 +455,7 @@ export async function revokePrincipalKey(input: {
       reason_code: input.reasonCode,
       revoked_at: now,
       revoked_by_key_id: operator.key.id,
-      signature,
+      signature: signed.envelope.signatureSegment,
     });
     const eventData = {
       revocation_id: revocation.id,

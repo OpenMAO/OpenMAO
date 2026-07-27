@@ -528,23 +528,32 @@ describe("the CLI surface", () => {
     expect(new PrincipalStore(database).listForWorkspace(WORKSPACE)).toHaveLength(0);
   });
 
-  it("the 13 routed CLI call sites still record the legacy cli_operator actor", async () => {
+  it("routed CLI call sites record the authenticated principal, not a self-asserted actor", async () => {
+    // The M3 stub recorded the legacy cli_operator identity everywhere. The
+    // same call sites now resolve a REAL operator through the profile: the
+    // recorded actor is the stored principal id, signing-standing included.
     await runCli(["init"], { dbPath, write: capture().write });
     const code = await runCli(["org", "pause"], { dbPath, write: capture().write });
     expect(code).toBe(0);
     const workspaceId = "ws_11111111111111111111111111111111";
     const events = new EventStore(database).listForWorkspace(workspaceId);
     const pauseEvent = events.find((event) => event.kind.startsWith("org_control"));
-    expect(pauseEvent?.actor).toBe("cli_operator");
-    expect(resolveCliPrincipal(database, workspaceId)).toEqual({
-      principal_id: "cli_operator",
+    const principal = resolveCliPrincipal(
+      database,
+      workspaceId,
+      workspaceCustodyDir(join(dir, "keys"), workspaceId),
+    );
+    expect(pauseEvent?.actor).toBe(principal.principal_id);
+    expect(pauseEvent?.actor).toMatch(/^principal_[0-9a-f]{32}$/);
+    expect(pauseEvent?.actor).not.toBe("cli_operator");
+    expect(principal).toMatchObject({
       workspace_id: workspaceId,
       kind: "human",
-      actor: "cli_operator",
-      key_id: null,
-      can_sign: false,
-      dev_bootstrap: false,
+      actor: principal.principal_id,
+      can_sign: true,
+      dev_bootstrap: true,
     });
+    expect(principal.key_id).not.toBeNull();
   });
 });
 
