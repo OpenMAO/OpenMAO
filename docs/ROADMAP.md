@@ -243,8 +243,17 @@ OpenMAO should not become:
 - a governance, policy, or audit control plane as its product identity;
 - another agent-orchestration framework competing on the inner loop;
 - a per-framework plugin, or a product fused to any single agent framework or model;
-- a replacement for every agent framework, or a general-purpose project-management app;
+- a replacement for every agent framework;
+- a generic, human-only project-management app;
 - a tool that lets external runtimes own OpenMAO truth;
 - a system that silently mutates collective memory or authority boundaries;
 - a system that grants autonomy it has not earned, or that auto-applies org changes without human authorization;
 - a default path for live external side effects without explicit approval and auditability.
+
+Work management is native rather than delegated to an external tracker: OpenMAO owns the work it
+governs. Grouping work into projects, expressing recurring work through the existing standing-obligation
+schedule, and the operator surfaces over both extend the current work-item spine — they add no new
+kernel vocabulary, and they do not precede the Phase 1 acceptance criteria. Matching a dedicated
+tracker's planning surface is not an acceptance criterion at any phase, and sync with an external
+tracker is a later opt-in, never a dependency. See `NORTH_STAR.md` for the two rules that bound
+this.

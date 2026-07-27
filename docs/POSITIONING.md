@@ -49,7 +49,7 @@ store, and durable-execution substrate.
 
 OpenMAO provides the organizational layer above them:
 
-- accountable work items;
+- accountable work items, owned natively rather than delegated to an external tracker;
 - roles, owners, and reviewers;
 - policy and approvals;
 - promoted institutional memory;
@@ -63,7 +63,7 @@ value is meant to survive swapping the framework underneath.
 ## Related Work
 
 This is a non-exhaustive, respectful map of neighboring projects and what they focus on. OpenMAO
-complements rather than competes with most of these:
+complements rather than competes with most of these; the one deliberate overlap is named below:
 
 - **Agent frameworks** such as LangGraph, CrewAI, and OpenAI Agents SDK orchestrate agent reasoning
   and multi-step execution. OpenMAO can govern and learn above any of them.
@@ -84,6 +84,13 @@ complements rather than competes with most of these:
 - **Observability and tracing** tools such as Langfuse capture what agents did, for analysis.
   OpenMAO's event log is different in kind: it is the authorizing record, written before execution
   and sealed after it, not telemetry collected alongside.
+- **Work trackers** such as Jira, Linear, and Notion own the human work backlog. This is the one
+  adjacent category OpenMAO overlaps on purpose: the record that authorizes a task and the record
+  that holds it should not be different systems, so work items are native rather than delegated.
+  What differs is what the record carries — an OpenMAO work item is delegable to an agent under
+  policy, carries the approval and audit trail, and feeds institutional memory. Matching a
+  dedicated tracker's planning surface is not the goal, and sync with one is an opt-in
+  integration, not a dependency.
 - **Policy engines** such as OPA and Cedar evaluate authorization policies given a request.
   OpenMAO's governance gate is a natural place to consult such an engine; OpenMAO additionally owns
   what they do not — approvals as durable state, memory promotion, and the organization-of-record.

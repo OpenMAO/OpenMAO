@@ -139,10 +139,30 @@ OpenMAO is not:
 - another agent orchestration framework competing on plan/act/observe loops;
 - a per-framework plugin;
 - fused to one agent framework or model;
-- a replacement for Jira, Linear, Notion, Slack, Gmail, Drive, GitHub, Salesforce, or internal apps;
+- a drop-in replacement for Jira, Linear, Notion, Slack, Gmail, Drive, GitHub, Salesforce, or
+  internal apps;
+- a generic, human-only project-management app;
 - a system that grants autonomy it has not earned;
 - a hosted, vendor-locked product;
 - an uncontrolled swarm of free-acting agents.
+
+One clarification, because the work-management line is easy to misread in both directions.
+OpenMAO owns the work it governs, natively: the record that authorizes a task and the record
+that holds it should not be different systems. Today that is the work item — objective, owner,
+reviewer, success criteria, risk, approval gates. Grouping work into projects, expressing
+recurring work through the standing-obligation schedule, and the operator surfaces over both are
+direction, not shipped capability. Two rules bound that direction:
+
+1. **Agent-native, not a human-only clone.** Every unit of work is delegable to an agent,
+   governed by approvals and earned autonomy, and feeds institutional memory. The differentiator
+   is the institutional-learning loop wrapped around the work — memory that compounds and
+   autonomy earned on an audited record — not the absence of task management, and not governance,
+   which is table stakes.
+2. **Operator-first vocabulary.** Operator surfaces say *task* and *project*, never *issue*;
+   operators are not all software teams.
+
+Matching a dedicated tracker's planning surface is not the goal, and sync with an external
+tracker is a later opt-in, never a dependency.
 
 ## Drift Test
 
