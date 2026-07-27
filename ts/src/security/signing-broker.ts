@@ -50,8 +50,10 @@ function handleToEnvKey(handle: string, prefix: string): string {
  * log, or stack-adjacent string. The algorithm is pinned to Ed25519 here too:
  * `crypto.sign(null, …)` derives its behaviour from whatever key it is handed,
  * so a non-Ed25519 key is refused at import rather than signed with silently.
+ * Exported for the file-backed custody tier in key-custody.ts, which imports
+ * under exactly the same rules.
  */
-function importPkcs8(handle: string, material: string): KeyObject {
+export function importPkcs8(handle: string, material: string): KeyObject {
   let key: KeyObject;
   try {
     key = createPrivateKey({
@@ -68,11 +70,36 @@ function importPkcs8(handle: string, material: string): KeyObject {
   return key;
 }
 
+const LOOPBACK_BINDINGS = new Set(["127.0.0.1", "localhost", "::1", "::ffff:127.0.0.1"]);
+
+/**
+ * Signals under which the env tier must refuse to operate: an explicit
+ * production environment, or a configured non-loopback bind address (a
+ * development convenience must not be reachable from a network surface).
+ * Returns the NAMES of triggered signals only — never values.
+ */
+export function productionSignals(env: NodeJS.ProcessEnv): string[] {
+  const signals: string[] = [];
+  if (env.NODE_ENV === "production") {
+    signals.push("NODE_ENV=production");
+  }
+  for (const variable of ["OPENMAO_HOST", "OPENMAO_BIND"] as const) {
+    const value = env[variable];
+    if (value !== undefined && value.trim() !== "" && !LOOPBACK_BINDINGS.has(value.trim())) {
+      signals.push(`${variable} is non-loopback`);
+    }
+  }
+  return signals;
+}
+
 /**
  * Signs with key material held in environment variables: `signkey_operator`
  * reads `OPENMAO_SIGNKEY_OPERATOR`, expected to hold base64/base64url PKCS8
  * DER. Returns null when the variable is absent or empty so an unconfigured
- * deployment simply has no signer.
+ * deployment simply has no signer. The env tier is a development convenience:
+ * the refusal to operate under production-ish signals lives HERE, inside the
+ * broker, so an embedding consumer cannot bypass it by constructing the
+ * broker directly.
  */
 export class EnvSigningBroker implements SigningBroker {
   // ECMAScript-private fields: the custody boundary is runtime-enforced, not
@@ -88,6 +115,12 @@ export class EnvSigningBroker implements SigningBroker {
 
   sign(handle: string, bytes: Buffer): Buffer | null {
     validateSigningHandle(handle);
+    const signals = productionSignals(this.#env);
+    if (signals.length > 0) {
+      throw new SigningBrokerError(
+        `env signing tier refuses to operate in production (${signals.join(", ")})`,
+      );
+    }
     const value = this.#env[handleToEnvKey(handle, this.#prefix)];
     if (value === undefined || value.trim().length === 0) {
       return null;

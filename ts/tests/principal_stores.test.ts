@@ -24,7 +24,7 @@ import {
   buildProtectedHeader,
   encodeSegment,
   payloadBytesForBody,
-  verifyObject,
+  verifyObjectWithKeys,
 } from "../src/security/signing.js";
 
 const fixturePath = new URL("../../tests/fixtures/canonical_v0.json", import.meta.url);
@@ -458,7 +458,7 @@ describe("Ed25519 key enrolment boundary", () => {
         signer: principal.id,
       }),
     );
-    const result = verifyObject({
+    const result = verifyObjectWithKeys({
       expectedClass: "governance_decision",
       expectedWorkspaceId: workspaceId,
       expectedObjectId: objectId,
@@ -476,6 +476,7 @@ describe("Ed25519 key enrolment boundary", () => {
           status: "active",
           validUntil: null,
           conditions: [],
+          dev_bootstrap: false,
         },
       ],
       now: NOW,

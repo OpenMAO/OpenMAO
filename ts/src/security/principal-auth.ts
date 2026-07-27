@@ -8,7 +8,13 @@ import {
   PrincipalStore,
 } from "../persistence/index.js";
 
-export type AuthenticatedPrincipal = { principal_id: string; workspace_id: string };
+/**
+ * The narrow identity a presented token resolves to. The full boundary shape —
+ * kind, derived actor, key, signing capability, trust flag — is
+ * AuthenticatedPrincipal in authenticated-principal.ts; enrichPrincipalIdentity
+ * upgrades this to it.
+ */
+export type ResolvedPrincipalIdentity = { principal_id: string; workspace_id: string };
 
 export class PrincipalAuthError extends Error {}
 
@@ -53,7 +59,7 @@ export class PrincipalAuthService {
    * principal itself is no longer active. The credential AND the principal must both be active:
    * a token must not outlive the standing of the identity it authenticates.
    */
-  resolve(token: string | null): AuthenticatedPrincipal | null {
+  resolve(token: string | null): ResolvedPrincipalIdentity | null {
     if (!token) {
       return null;
     }

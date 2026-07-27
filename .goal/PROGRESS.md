@@ -7,7 +7,7 @@ actually been accepted versus attempted.
 |---|---|---|---|
 | M1 Crypto core | **ACCEPTED** | 2026-07-26 | 378 tests (baseline 329); 2 audit rounds, 8 findings fixed; driver fixed a quadratic-scan regression |
 | M2 Identity storage | **ACCEPTED** | 2026-07-26 | 428 tests; 2 audit rounds, 13 findings incl. a demonstrated P0 signature forgery |
-| M3 Custody + bootstrap | next | — | — |
+| M3 Custody + bootstrap | code written, AUDIT REJECTED x2 (attempt 2/3) | — | 504 tests green; P0 + 4 P1 outstanding; one attempt left |
 | M3a Console extraction | not started | — | — |
 | M4 Atomic cutover | not started | — | — |
 | M5 Signed decisions | not started | — | — |
@@ -147,3 +147,40 @@ Two residual notes accepted knowingly: one test asserts the Node low-order-verif
 exists, so it will fail if a future Node hardens it — a canary that breaks on an upstream fix; and
 the end-to-end forgery assertion is indirect (the forged key is refused as unknown because it can no
 longer be enrolled at all). The executor disclosed both rather than papering over them.
+
+### SIG-003 — M3 / two audit rejections + a half-migrated tree
+
+M3 (custody + bootstrap) is written and green at **504 tests**, but has been rejected twice by the
+cross-family audit and is at code-attempt 2 of 3.
+
+**Tree state found at tick 9, worth recording as a process failure:** `make check` was RED on arrival,
+despite the prior round reporting "498 green". Two causes, both now fixed by the driver:
+biome formatting errors in two new files, and — more seriously — a **half-migrated refactor**. The
+audit's cross-workspace fix changed `resolveCustody` to take `keysRoot` + `workspaceId`, the source
+was updated, but `ts/tests/key_custody.test.ts` still used the old `keysDir` API and never imported
+`workspaceCustodyDir`. So the file did not typecheck, and the "498 green" verification was taken on a
+tree that could not compile that suite. Completing the migration (one import, five call sites) took
+the count to 504 — the extra six are cases that were never actually running.
+
+**Lesson for the executor brief:** a reported test count is only meaningful if typecheck passed in
+the same run. Verify the gate end-to-end rather than trusting a summary line.
+
+**Outstanding audit findings on M3 (unfixed):**
+- **P0 — authority mutations accept forged signers.** `attestPrincipalKey()` gates on a
+  caller-supplied `attester.kind` and never verifies the signature against the *stored* attester key.
+  `revokePrincipalKey()` performs no active-principal, operator, active-revoker-key, or broker/key
+  binding check at all. The system records signed authority changes it cannot substantiate — the
+  exact property the milestone exists to establish.
+- **P1 — the honesty valve remains bypassable.** A registry-backed key loader was added, but
+  `verifyObject` still accepts caller-built keys and the loader has *zero production callers*. A
+  probe confirmed a hand-built key omitting `dev_bootstrap` still reports production trust.
+- **P1 — cross-workspace custody bypass survives.** `resolveCustody` still accepts a custody root and
+  workspace id that can disagree, and the registry check returns early when the registry is empty.
+- P1 — a disabled principal's keys still load as active.
+- P1 — failure paths can delete pre-existing artefacts and leave irrecoverable split state.
+- P1 — custody creation follows a symlinked directory; the profile is unchecked at use time.
+
+**The recurring pattern, named:** twice the executor added a safe path *without removing the unsafe
+one*. A safe alternative beside a reachable unsafe path is not a fix. The final attempt must make the
+unsafe path unexpressible — delete it, make it private, or change the signature so the dangerous
+combination cannot be constructed.

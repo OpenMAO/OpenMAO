@@ -3,7 +3,7 @@ export class SensitiveMaterialError extends Error {}
 const SENSITIVE_KEY_PATTERN =
   /(?:password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|bearer|private[_-]?key|client[_-]?secret|credential[_-]?value)/i;
 const SENSITIVE_VALUE_PATTERN =
-  /(?:sk-[A-Za-z0-9_-]{8,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,}|Bearer\s+\S+|-----BEGIN [^-]+PRIVATE KEY-----|(?:secret|token|password|api[_-]?key)[A-Za-z0-9_:-]{6,})/i;
+  /(?:sk-[A-Za-z0-9_-]{8,}|github_pat_[A-Za-z0-9_]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,}|Bearer\s+\S+|-----BEGIN [^-]+PRIVATE KEY-----|prt_[0-9a-f]{16,}|wkr_[0-9a-f]{16,}|(?:secret|token|password|api[_-]?key)[A-Za-z0-9_:-]{6,})/i;
 // PKCS8 DER for an Ed25519 private key (RFC 8410) is a SEQUENCE wrapping a
 // fixed template — INTEGER 0, the 1.3.101.112 OID, and the nested OCTET
 // STRING header — but the outer SEQUENCE length varies with the optional

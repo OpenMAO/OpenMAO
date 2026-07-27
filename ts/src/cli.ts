@@ -1,6 +1,9 @@
 #!/usr/bin/env node
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+
 import { ChiefOfStaffService } from "./chief_of_staff/index.js";
-import { utcNow } from "./contracts/index.js";
+import { utcNow, WorkspaceSchema } from "./contracts/index.js";
 import { DiagnosisService } from "./diagnosis/index.js";
 import { ApprovalService, NarrowingService } from "./governance/index.js";
 import { ConsoleTransport, HeartbeatService } from "./heartbeat/index.js";
@@ -14,7 +17,7 @@ import {
 import { OrgChangeService, OrgControlService } from "./org/index.js";
 import {
   BoundedWorkEnvelopeStore,
-  type Database,
+  Database,
   EventStore,
   GrantSuspensionStore,
   IngestionRecordStore,
@@ -27,13 +30,26 @@ import {
   WorkerIdentityStore,
   WorkerOutcomeStore,
   WorkItemStore,
+  WorkspaceStore,
 } from "./persistence/index.js";
 import { createApprovalServiceWithApplications } from "./runtime/approvals.js";
 import {
   createConfiguredCapabilityRegistry,
   materializeRejectedCapabilityApproval,
 } from "./runtime/capabilities.js";
-import { openLocalDatabase } from "./runtime/local.js";
+import { defaultDatabasePath, openLocalDatabase } from "./runtime/local.js";
+import {
+  type AuthenticatedPrincipal,
+  authenticateFromProfile,
+  resolveCliPrincipal,
+} from "./security/authenticated-principal.js";
+import { resolveCustody, workspaceCustodyDir } from "./security/key-custody.js";
+import {
+  attestPrincipalKey,
+  revokePrincipalKey,
+  rotatePrincipalCredential,
+} from "./security/principal-authority.js";
+import { ensureRootOperator, rotateProfileToken } from "./security/principal-bootstrap.js";
 import { WorkerAuthService } from "./security/worker-auth.js";
 import { PROMOTION_APPROVAL_ID, RUN_ID, SpineService, WORKSPACE_ID } from "./spine/index.js";
 import { WorkService } from "./work/index.js";
@@ -102,6 +118,8 @@ function positionalArgs(args: string[]): string[] {
     "--by",
     "--strength",
     "--note",
+    "--subject-key",
+    "--reason",
     "--rejections",
     "--violations",
     "--window",
@@ -171,6 +189,53 @@ function requireDefaultWorkspace(workspaceId: string): void {
   }
 }
 
+/**
+ * The custody root for this database. Per-workspace key directories are
+ * DERIVED from it (workspaceCustodyDir): no caller ever pairs a directory
+ * with a workspace id independently, so a cross-workspace (directory of A,
+ * id of B) confusion cannot be expressed.
+ */
+function cliKeysRoot(database: Database): string {
+  return process.env.OPENMAO_KEYS_DIR ?? join(dirname(database.path), "keys");
+}
+
+/**
+ * Where signing keys, the fingerprint, and the operator profile live for this
+ * database and workspace. Custody is namespaced per workspace: two workspaces
+ * never share a key file, and one workspace's key can never be resolved as
+ * another's custody.
+ */
+function cliKeysDir(database: Database, workspaceId: string): string {
+  return workspaceCustodyDir(cliKeysRoot(database), workspaceId);
+}
+
+/** The principals tables FK to workspaces, so the ceremony needs the row to exist. */
+function ensureWorkspaceExists(database: Database, workspaceId: string): void {
+  const store = new WorkspaceStore(database);
+  if (store.get(workspaceId)) {
+    return;
+  }
+  store.save(WorkspaceSchema.parse({ id: workspaceId, name: workspaceId, created_at: utcNow() }));
+}
+
+/** Second-invocation authentication: the local operator profile, or a refusal. */
+function requireProfilePrincipal(
+  database: Database,
+  keysDir: string,
+  workspaceId: string,
+): AuthenticatedPrincipal & { key_id: string } {
+  const principal = authenticateFromProfile(database, keysDir);
+  if (!principal || principal.workspace_id !== workspaceId) {
+    throw new Error(
+      "no authenticated operator profile for this workspace; run `principals init` first",
+    );
+  }
+  if (!principal.can_sign || principal.key_id === null) {
+    throw new Error("operator profile has no active signing key");
+  }
+  return principal as AuthenticatedPrincipal & { key_id: string };
+}
+
 function requireWorkItemInWorkspace(database: Database, workspaceId: string, workId: string): void {
   const work = new WorkItemStore(database).get(workId);
   if (!work || work.workspace_id !== workspaceId) {
@@ -180,17 +245,40 @@ function requireWorkItemInWorkspace(database: Database, workspaceId: string, wor
 
 export async function runCli(args: string[], options: CliOptions = {}): Promise<number> {
   const write = options.write ?? console.log;
+  const positions = positionalArgs(args);
+  const command = positions[0] ?? "help";
+  const subcommand = positions[1] ?? "";
+  const selectedWorkspace = optionValue(args, "--workspace") ?? WORKSPACE_ID;
+
+  // Read-only commands never provision: no parent directory, no SQLite file,
+  // no WAL, no schema. A missing database is reported and exits non-zero.
+  if (command === "verify-chain") {
+    const dbPath = options.dbPath ?? defaultDatabasePath();
+    if (!existsSync(dbPath)) {
+      write(JSON.stringify({ ok: false, error: `database does not exist: ${dbPath}` }, null, 2));
+      return 1;
+    }
+    const database = new Database(dbPath);
+    try {
+      const report = verifyAllChains(database);
+      printJson(write, report);
+      return report.ok ? 0 : 1;
+    } finally {
+      database.close();
+    }
+  }
+
   const database = openLocalDatabase(options.dbPath);
   try {
     const spine = new SpineService(database);
-    const positions = positionalArgs(args);
-    const command = positions[0] ?? "help";
-    const subcommand = positions[1] ?? "";
-    const selectedWorkspace = optionValue(args, "--workspace") ?? WORKSPACE_ID;
+    // The single identity resolver every actor call site goes through. M3
+    // yields the legacy cli_operator identity so no command's behaviour
+    // changes; M4 flips this one function.
+    const cliPrincipal = resolveCliPrincipal(database, selectedWorkspace);
 
     if (command === "help" || command === "--help" || command === "-h") {
       write(
-        "openmao demo | demo-approve | demo-deny | init | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert|withdraw | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | autonomy narrow ratify --by <actor> --rejections <n> --violations <m> --window <seconds> --cooldown <seconds> | autonomy narrow scan|list | autonomy narrow lift <id> --by <actor> --note <text> | memory search|list [--include-untrusted --by <actor>]|attest <entry_id> --by <operator>|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | verify-chain | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | console",
+        "openmao demo | demo-approve | demo-deny | init | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert|withdraw | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | autonomy narrow ratify --by <actor> --rejections <n> --violations <m> --window <seconds> --cooldown <seconds> | autonomy narrow scan|list | autonomy narrow lift <id> --by <actor> --note <text> | memory search|list [--include-untrusted --by <actor>]|attest <entry_id> --by <operator>|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | verify-chain | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | console | principals init|mint-token|attest --subject-key <key_id>|revoke-key <key_id> [--reason <code>]",
       );
       return 0;
     }
@@ -212,11 +300,6 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       requireDefaultWorkspace(selectedWorkspace);
       printJson(write, await spine.denyDemo());
       return 0;
-    }
-    if (command === "verify-chain") {
-      const report = verifyAllChains(database);
-      printJson(write, report);
-      return report.ok ? 0 : 1;
     }
     if (command === "run" && subcommand === "resume") {
       requireDefaultWorkspace(selectedWorkspace);
@@ -255,7 +338,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           version: optionValue(args, "--version"),
           role_id: optionValue(args, "--role"),
           allowed_capabilities: commaList(optionValue(args, "--capabilities")),
-          actor: "cli_operator",
+          actor: cliPrincipal.actor,
         }),
       );
       return 0;
@@ -307,7 +390,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           priority: (optionValue(args, "--priority") ?? "medium") as never,
           risk_level: (optionValue(args, "--risk") ?? "low") as never,
           success_criteria: commaList(optionValue(args, "--criteria")),
-          actor: "cli_operator",
+          actor: cliPrincipal.actor,
         }),
       );
       return 0;
@@ -324,7 +407,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           work_item_id: workId,
           owner: requireOption(args, "--owner"),
           reviewer: optionValue(args, "--reviewer"),
-          actor: "cli_operator",
+          actor: cliPrincipal.actor,
         }),
       );
       return 0;
@@ -341,7 +424,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           workspace_id: selectedWorkspace,
           work_item_id: workId,
           status: status as never,
-          actor: "cli_operator",
+          actor: cliPrincipal.actor,
         }),
       );
       return 0;
@@ -387,7 +470,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           workspace_id: selectedWorkspace,
           work_item_id: workId,
           decision: decision as never,
-          actor: "cli_operator",
+          actor: cliPrincipal.actor,
         }),
       );
       return 0;
@@ -404,7 +487,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           workspace_id: selectedWorkspace,
           work_item_id: workId,
           worker_id: requireOption(args, "--worker"),
-          issued_by: { actor_type: "operator", actor_id: "cli_operator", display_name: null },
+          issued_by: { actor_type: "operator", actor_id: cliPrincipal.actor, display_name: null },
           run_id: optionValue(args, "--run"),
           allowed_capabilities: commaList(optionValue(args, "--capabilities")),
           input: jsonOption(optionValue(args, "--input")),
@@ -487,7 +570,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         write,
         new OrgChangeService(database).markApplied(proposalId, {
           workspace_id: selectedWorkspace,
-          actor: "cli_operator",
+          actor: cliPrincipal.actor,
         }),
       );
       return 0;
@@ -519,7 +602,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         write,
         new OrgChangeService(database).revertApplication(application.id, {
           workspace_id: selectedWorkspace,
-          actor: "cli_operator",
+          actor: cliPrincipal.actor,
         }),
       );
       return 0;
@@ -535,7 +618,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         write,
         new OrgChangeService(database).withdraw(proposalId, {
           workspace_id: selectedWorkspace,
-          actor: "cli_operator",
+          actor: cliPrincipal.actor,
         }),
       );
       return 0;
@@ -621,7 +704,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       printJson(
         write,
         new OrgControlService(database).pauseApply(selectedWorkspace, {
-          actor: "cli_operator",
+          actor: cliPrincipal.actor,
           reason: positions[2] ?? null,
         }),
       );
@@ -631,7 +714,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       printJson(
         write,
         new OrgControlService(database).resumeApply(selectedWorkspace, {
-          actor: "cli_operator",
+          actor: cliPrincipal.actor,
         }),
       );
       return 0;
@@ -713,7 +796,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       } else if (approval?.payload.target_type === "capability_call") {
         new ApprovalService(database).approve(approvalId, {
           workspace_id: selectedWorkspace,
-          actor: "cli_operator",
+          actor: cliPrincipal.actor,
         });
         printJson(
           write,
@@ -729,7 +812,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           write,
           createApprovalServiceWithApplications(database).approve(approvalId, {
             workspace_id: selectedWorkspace,
-            actor: "cli_operator",
+            actor: cliPrincipal.actor,
           }),
         );
       }
@@ -924,6 +1007,128 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
           interval_seconds: interval,
           at: optionValue(args, "--at") ?? utcNow(),
           id: optionValue(args, "--id"),
+        }),
+      );
+      return 0;
+    }
+
+    if (command === "principals" && subcommand === "init") {
+      // The root-of-trust ceremony: valid on an empty registry, idempotent on
+      // its own prior state, refused under production-ish signals. The token
+      // prints ONCE; afterwards it lives only in the 0600 profile file.
+      const keysDir = cliKeysDir(database, selectedWorkspace);
+      ensureWorkspaceExists(database, selectedWorkspace);
+      const result = ensureRootOperator({ database, workspaceId: selectedWorkspace, keysDir });
+      printJson(write, {
+        mode: result.mode,
+        already_bootstrapped: result.already_bootstrapped,
+        workspace_id: result.workspace_id,
+        principal_id: result.principal_id,
+        key_id: result.key_id,
+        public_key: result.public_key,
+        fingerprint: result.fingerprint,
+        key_path: result.key_path,
+        fingerprint_path: result.fingerprint_path,
+        profile_path: result.profile_path,
+        predicates: result.predicates,
+        ...(result.already_bootstrapped
+          ? { note: "Root operator already bootstrapped; nothing was changed." }
+          : {
+              // The plaintext token is never printed: it lives only in the
+              // mode-0600 profile file, so it cannot land in shell history or
+              // CI logs.
+              note: "The operator token is held only in the mode-0600 profile file; it is never printed.",
+            }),
+      });
+      return 0;
+    }
+    if (command === "principals" && subcommand === "mint-token") {
+      // Rotates the operator credential: the new token is written to the 0600
+      // profile BEFORE the prior credential is revoked, so a failed profile
+      // write can never strand the operator with no usable token. The
+      // revocation and the mint event then commit in one transaction — an
+      // authority change is an audited act. The plaintext never prints.
+      const keysDir = cliKeysDir(database, selectedWorkspace);
+      const principal = requireProfilePrincipal(database, keysDir, selectedWorkspace);
+      const minted = rotatePrincipalCredential({
+        database,
+        workspaceId: selectedWorkspace,
+        principalId: principal.principal_id,
+        persistToken: (token) => {
+          rotateProfileToken(keysDir, token);
+        },
+      });
+      printJson(write, {
+        credential_id: minted.credential_id,
+        principal_id: minted.principal_id,
+        note: "The credential was rotated; the new token is held only in the mode-0600 profile file and is never printed.",
+      });
+      return 0;
+    }
+    if (command === "principals" && subcommand === "attest") {
+      // The operator key attests another enrolled key through the authority
+      // service: predicates are EVALUATED, the attestation is signed through
+      // custody, and the row plus its event commit in one transaction.
+      const subjectKeyId = requireOption(args, "--subject-key");
+      const keysDir = cliKeysDir(database, selectedWorkspace);
+      const attester = requireProfilePrincipal(database, keysDir, selectedWorkspace);
+      const custody = resolveCustody({
+        env: process.env,
+        keysRoot: cliKeysRoot(database),
+        database,
+        workspaceId: selectedWorkspace,
+      });
+      if (!custody.broker) {
+        throw new Error("no signing key custody available for the operator key");
+      }
+      printJson(
+        write,
+        await attestPrincipalKey({
+          database,
+          workspaceId: selectedWorkspace,
+          attester: {
+            principal_id: attester.principal_id,
+            key_id: attester.key_id,
+          },
+          subjectKeyId,
+          broker: custody.broker,
+          handle: custody.handle,
+        }),
+      );
+      return 0;
+    }
+    if (command === "principals" && subcommand === "revoke-key") {
+      // Signed revocation through the authority service: the audit row, the
+      // key's standing flip, and the revocation event commit in one
+      // transaction.
+      const keyId = positions[2];
+      if (!keyId) {
+        throw new Error("usage: principals revoke-key <key_id> [--reason <code>]");
+      }
+      const keysDir = cliKeysDir(database, selectedWorkspace);
+      const revoker = requireProfilePrincipal(database, keysDir, selectedWorkspace);
+      const custody = resolveCustody({
+        env: process.env,
+        keysRoot: cliKeysRoot(database),
+        database,
+        workspaceId: selectedWorkspace,
+      });
+      if (!custody.broker) {
+        throw new Error("no signing key custody available for the operator key");
+      }
+      printJson(
+        write,
+        await revokePrincipalKey({
+          database,
+          workspaceId: selectedWorkspace,
+          revoker: {
+            principal_id: revoker.principal_id,
+            key_id: revoker.key_id,
+          },
+          keyId,
+          reasonCode: optionValue(args, "--reason") ?? "operator_initiated",
+          broker: custody.broker,
+          handle: custody.handle,
         }),
       );
       return 0;

@@ -20,7 +20,7 @@ import {
   signObject,
   type VerificationKey,
   type VerifyFailureReason,
-  verifyObject,
+  verifyObjectWithKeys,
 } from "../src/security/signing.js";
 
 // All key material below is generated at runtime or derived from a published
@@ -70,6 +70,7 @@ function verificationKey(overrides: Partial<VerificationKey> = {}): Verification
     status: "active",
     validUntil: null,
     conditions: [],
+    dev_bootstrap: false,
     ...overrides,
   };
 }
@@ -96,7 +97,7 @@ function verifyWith(
   keys: readonly VerificationKey[],
   overrides: { expectedWorkspaceId?: string; expectedObjectId?: string; now?: string } = {},
 ) {
-  return verifyObject({
+  return verifyObjectWithKeys({
     expectedClass: "governance_decision",
     expectedWorkspaceId: WORKSPACE,
     expectedObjectId: OBJECT,
@@ -171,6 +172,7 @@ describe("signing positive cases", () => {
       objectClass: "governance_decision",
       keyId: "key_a",
       signerPrincipalId: PRINCIPAL_A,
+      trust: "standard",
     });
   });
 
@@ -183,7 +185,7 @@ describe("signing positive cases", () => {
         body: decisionBody(),
         privateKey: keyA.privateKey,
       });
-      const result = verifyObject({
+      const result = verifyObjectWithKeys({
         expectedClass: objectClass,
         expectedWorkspaceId: WORKSPACE,
         expectedObjectId: OBJECT,
@@ -193,6 +195,20 @@ describe("signing positive cases", () => {
       });
       expect(result.ok).toBe(true);
     }
+  });
+
+  it("the honesty valve: a dev-bootstrap key VERIFIES but reports development_bootstrap trust", () => {
+    const dev = verifyWith(signedDecision(), [verificationKey({ dev_bootstrap: true })]);
+    expect(dev).toEqual({
+      ok: true,
+      objectClass: "governance_decision",
+      keyId: "key_a",
+      signerPrincipalId: PRINCIPAL_A,
+      trust: "development_bootstrap",
+    });
+    // Absent the flag, trust is standard — the flag defaults off.
+    const standard = verifyWith(signedDecision(), [verificationKey()]);
+    expect(standard.ok && standard.trust).toBe("standard");
   });
 });
 
@@ -324,7 +340,7 @@ describe("pinned positive vector", () => {
   });
 
   it("verifies the pinned vector end to end", () => {
-    const result = verifyObject({
+    const result = verifyObjectWithKeys({
       expectedClass: "governance_decision",
       expectedWorkspaceId: "ws_fixture",
       expectedObjectId: "appr_fixture",

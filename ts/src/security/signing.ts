@@ -5,6 +5,8 @@ import {
   type KeyObject,
 } from "node:crypto";
 
+import type { Database } from "../persistence/index.js";
+import { PrincipalKeyStore, PrincipalStore } from "../persistence/index.js";
 import { dumpJson } from "../persistence/serialization.js";
 
 /**
@@ -188,6 +190,14 @@ export type VerificationKey = {
   /** ISO instant after which the key confers no authority, or null. */
   validUntil: string | null;
   conditions: readonly EnrolmentCondition[];
+  /**
+   * The honesty valve: a key created by the dev-bootstrap ceremony verifies
+   * cryptographically but must never report production trust. Not optional
+   * and never defaulted at verification time: the registry-backed key loader
+   * (loadVerificationKeys) derives it from the stored principal row, so a
+   * caller cannot choose the trust a signature reports by omitting a field.
+   */
+  dev_bootstrap: boolean;
 };
 
 export type VerifyFailureReason =
@@ -209,11 +219,19 @@ export type VerifyFailureReason =
   | "signature_invalid"
   | "internal_error";
 
+/**
+ * The trust a verified signature may claim. A signature by a dev-bootstrap key
+ * is cryptographically valid but reports "development_bootstrap" — the demo
+ * stays one command without lying about what it proved.
+ */
+export type SignatureTrust = "standard" | "development_bootstrap";
+
 export type VerifySuccess = {
   ok: true;
   objectClass: SignedObjectClass;
   keyId: string;
   signerPrincipalId: string;
+  trust: SignatureTrust;
 };
 
 export type VerifyFailure = {
@@ -225,10 +243,51 @@ export type VerifyFailure = {
 export type VerifyResult = VerifySuccess | VerifyFailure;
 
 /**
+ * The production verifier. There is deliberately NO `keys` parameter: the key
+ * set is loaded from the principal registry (loadVerificationKeys) inside this
+ * function, so every property a verdict reports — enrolment, standing, owner,
+ * validity, and the dev_bootstrap trust label — is derived from stored rows.
+ * A caller cannot supply keys, a `dev_bootstrap` flag, or a `status` at all;
+ * the trust a signature reports is not expressible as caller input on this
+ * path.
+ *
  * Verifies a signed envelope against the exact signed bytes. Never throws,
  * never returns a bare boolean; every refusal is typed and fail-closed.
  */
 export function verifyObject(input: {
+  database: Database;
+  workspaceId: string;
+  expectedClass: SignedObjectClass;
+  expectedObjectId: string;
+  envelope: SignedEnvelopeParts;
+  /** Injected "now" as an ISO instant; the wall clock is never read. */
+  now: string;
+}): VerifyResult {
+  try {
+    const keys = loadVerificationKeys(input.database, input.workspaceId);
+    return verifyObjectInner({
+      expectedClass: input.expectedClass,
+      expectedWorkspaceId: input.workspaceId,
+      expectedObjectId: input.expectedObjectId,
+      envelope: input.envelope,
+      keys,
+      now: input.now,
+    });
+  } catch {
+    return { ok: false, reason: "internal_error", keyId: null };
+  }
+}
+
+/**
+ * TEST-ONLY SEAM — the white-box verifier the refusal-vector suites
+ * (ts/tests/signing.test.ts, ts/tests/principal_stores.test.ts) drive with
+ * hand-built key sets. This is NOT a production API: every VerificationKey
+ * field here is caller-supplied, including the trust label, so no production
+ * module may call it — production verification is verifyObject above, which
+ * takes a database and derives the key set from the registry. If you are
+ * reaching for this outside a test file, stop.
+ */
+export function verifyObjectWithKeys(input: {
   expectedClass: SignedObjectClass;
   expectedWorkspaceId: string;
   expectedObjectId: string;
@@ -371,6 +430,7 @@ function verifyObjectInner(input: {
     objectClass: presentedClass,
     keyId: key.keyId,
     signerPrincipalId: key.ownerPrincipalId,
+    trust: key.dev_bootstrap ? "development_bootstrap" : "standard",
   };
 }
 
@@ -451,4 +511,37 @@ function evaluateConditions(
 
 function readLittleEndianBigInt(bytes: Buffer): bigint {
   return BigInt(`0x${Buffer.from(bytes).reverse().toString("hex")}`);
+}
+
+/**
+ * The registry-backed key loader: the ONLY way a verifier should obtain
+ * VerificationKey values in production paths. Every field — enrolled state,
+ * standing, validity window, owner, and the dev_bootstrap honesty flag — is
+ * derived from stored rows, never from caller input, so the trust a verified
+ * signature reports is a property of the registry and cannot be spoofed by
+ * the caller presenting (or omitting) a flag. A key whose principal row is
+ * missing or cross-workspace is conservatively reported not enrolled.
+ */
+export function loadVerificationKeys(database: Database, workspaceId: string): VerificationKey[] {
+  const principals = new PrincipalStore(database);
+  const keyStore = new PrincipalKeyStore(database);
+  const loaded: VerificationKey[] = [];
+  for (const principal of principals.listForWorkspace(workspaceId)) {
+    for (const key of keyStore.listForPrincipal(workspaceId, principal.id)) {
+      loaded.push({
+        keyId: key.id,
+        publicKeyBase64Url: key.public_key,
+        ownerPrincipalId: principal.id,
+        enrolled: true,
+        // Standing is derived from BOTH stored rows: a key row that still says
+        // "active" confers no authority when its principal is disabled, so the
+        // verifier sees such a key as revoked — never as active.
+        status: principal.status === "active" ? key.status : "revoked",
+        validUntil: key.valid_until,
+        conditions: [],
+        dev_bootstrap: principal.dev_bootstrap,
+      });
+    }
+  }
+  return loaded;
 }
