@@ -87,6 +87,11 @@ OpenMAO splits "task" into two types because they answer different questions.
 
 One `WorkItem` can produce many `TaskEnvelope`s across retries or re-delegations.
 
+Operator-facing surfaces label `WorkItem` as **task**, and a grouping of work items as
+**project** — never *issue*. The kernel type names do not change; the labels are a
+presentation-layer mapping, and developer names stay available behind a toggle. Recurring work is
+expressed through `Cadence`, the existing standing obligation, rather than a new type.
+
 ### Organizational State → OpenMAO + Execution Runtime
 
 OpenMAO owns organizational state, while execution frameworks own their internal execution state.
