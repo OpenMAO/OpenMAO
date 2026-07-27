@@ -1,15 +1,19 @@
+import { createPublicKey, verify as cryptoVerify } from "node:crypto";
+
 import { newId, utcNow } from "../contracts/index.js";
 import type { DecisionSigner } from "../governance/decision-signing.js";
+// Imported from the LEAF modules, never the persistence barrel: verifyAllChains
+// (in persistence) imports this module for the read-time authenticity check, so
+// an import of the barrel here would cycle the module graph.
 import {
   type ChainHeadAttestation,
   ChainHeadAttestationStore,
-  type Database,
-  EventStore,
-  GovernanceSignatureStore,
-  PrincipalKeyStore,
-  PrincipalStore,
-} from "../persistence/index.js";
+} from "../persistence/chain-attestations.js";
+import type { Database } from "../persistence/database.js";
+import { EventStore } from "../persistence/events.js";
+import { PrincipalKeyStore, PrincipalStore } from "../persistence/principals.js";
 import { dumpJson } from "../persistence/serialization.js";
+import { GovernanceSignatureStore } from "../persistence/signatures.js";
 import { assertAuthenticatedPrincipal } from "./authenticated-principal.js";
 import { assertNoSensitiveMaterial } from "./sensitive-material.js";
 import {
@@ -18,6 +22,7 @@ import {
   encodeSegment,
   mediaTypeForClass,
   payloadBytesForBody,
+  type SignatureTrust,
   type VerifyFailureReason,
   verifyObject,
 } from "./signing.js";
@@ -60,12 +65,23 @@ import {
  * attestation row, the governance_signatures row, and the audit event commit
  * in ONE transaction: on any failure nothing is written.
  *
+ * An attestation row's columns are only claims until its signature is
+ * re-verified at READ time — a row asserting it was attested is a marker, not
+ * provenance. `verifyChainHeadAttestation` below is the read-time half: it
+ * re-verifies the envelope in governance_signatures against the stored
+ * enrolled key, with the signed body rebuilt from the attestation row's own
+ * fields. The operator verification path (verifyAllChains / verify-chain)
+ * treats an attestation whose signature does not verify as a chain break with
+ * its own reason — never as a satisfied anchor, never as a silent skip.
+ *
  * HONEST SCOPE: the attestation lives in the same database as the events, so
  * it does not make truncation impossible — an attacker with direct file write
- * access can delete attestation rows beside the events. It detects truncation
- * only relative to an attestation that survives or was exported. Export/copy
- * of the attestation (or its signed bytes) is how an operator turns this into
- * durable evidence; nothing here claims more.
+ * access can delete attestation rows beside the events. What read-time
+ * verification adds is AUTHENTICITY, not survivability: an attestation that
+ * survives (or was exported) is now provably one an enrolled key signed, and
+ * a fabricated row pointing at a rewritten head is detected. But detection
+ * remains relative to an attestation that survives or was exported — nothing
+ * here makes deletion impossible, and nothing claims more.
  */
 export class ChainAttestationError extends Error {}
 
@@ -78,6 +94,122 @@ export type AttestChainHeadResult = {
   /** False when the current head was already attested — the replay no-op. */
   created: boolean;
 };
+
+/**
+ * Why an attestation failed read-time verification. `signature_missing` means
+ * the referenced governance_signatures row is absent or does not parse into
+ * an envelope at all; anything verifyObject reports — including a key that is
+ * unknown, unenrolled, expired, or never signed these bytes — is carried
+ * through as its own typed reason, so the audit record says what failed.
+ */
+export type AttestationVerificationFailureReason = "signature_missing" | VerifyFailureReason;
+
+export type ChainHeadAttestationVerification =
+  | { ok: true; trust: SignatureTrust }
+  | { ok: false; reason: AttestationVerificationFailureReason };
+
+/**
+ * Re-verifies an attestation's signature against the STORED enrolled key —
+ * the read-time half attestChainHead's write-time substantiation never had a
+ * caller for. Without this, the anchor is a row ASSERTING it was attested:
+ * anyone who can write the database can insert a plausible row pointing at a
+ * rewritten head, and the truncation arm would report a satisfied anchor.
+ *
+ * Every byte comes from stored state, never from anything in memory: the
+ * envelope is the governance_signatures row the attestation names (the exact
+ * signed byte string, never a re-serialization), the body claims verifyObject
+ * binds — workspace, object id, signer — and the two rows' signer columns are
+ * cross-checked against each other before the cryptographic check runs.
+ *
+ * FAIL-CLOSED ON STANDING, including revocation. The validity clock is the
+ * attestation's stored attested_at, so the window is judged at the historical
+ * instant — but a revoked key fails, full stop.
+ *
+ * An earlier revision carved out an exception here, on the reasoning that
+ * revocation carries no timestamp so it cannot be judged historically, and
+ * that failing closed would void honest anchors after key rotation. The
+ * exception re-ran the raw cryptographic check with standing "neutralised",
+ * and its comment claimed workspace, object and signer binding were preserved.
+ * They were not: verifyObject returns key_revoked BEFORE it binds the signed
+ * body's claims, so the exception skipped claim binding entirely and accepted
+ * a TRANSPLANTED signature. An attacker with database write access and no
+ * private key could rewrite the chain, reuse a genuine signature row, and flip
+ * the key to revoked to force the exception — inducing the very condition that
+ * bypassed the check. That is strictly worse than the case it rescued.
+ *
+ * Accepted cost: rotating a signing key voids the anchors it made, so re-attest
+ * after rotation. An exported bundle stays checkable by a third party holding
+ * the public key, which is the property that matters for evidence. Restoring an
+ * exception needs timestamped revocation, so standing can be evaluated AT the
+ * signing instant rather than set aside.
+ */
+export function verifyChainHeadAttestation(input: {
+  database: Database;
+  attestation: ChainHeadAttestation;
+}): ChainHeadAttestationVerification {
+  const { attestation } = input;
+  const signature = new GovernanceSignatureStore(input.database)
+    .forObject(attestation.workspace_id, CHAIN_ATTESTATION_OBJECT_TYPE, attestation.id)
+    .find((row) => row.id === attestation.signature_id);
+  const segments = signature?.signed_bytes.split(".") ?? [];
+  const [protectedHeaderSegment, payloadSegment] = segments;
+  if (
+    !signature ||
+    segments.length !== 2 ||
+    !protectedHeaderSegment ||
+    !payloadSegment ||
+    signature.signature.length === 0
+  ) {
+    return { ok: false, reason: "signature_missing" };
+  }
+  // Column consistency, fail-closed before the cryptographic check: the
+  // signature row and the attestation row must agree on who signed. A
+  // fabricated pair disagreeing here never reaches verifyObject.
+  if (
+    signature.signer_key_id !== attestation.signer_key_id ||
+    signature.signer_principal_id !== attestation.signer_principal_id ||
+    signature.workspace_id !== attestation.workspace_id
+  ) {
+    return { ok: false, reason: "signer_mismatch" };
+  }
+  const verdict = verifyObject({
+    database: input.database,
+    workspaceId: attestation.workspace_id,
+    expectedClass: CHAIN_ATTESTATION_OBJECT_TYPE,
+    expectedObjectId: attestation.id,
+    envelope: {
+      protectedHeaderSegment,
+      payloadSegment,
+      signatureSegment: signature.signature,
+    },
+    now: attestation.attested_at,
+  });
+  if (!verdict.ok) {
+    // Fail closed, including on a revoked signing key. An earlier revision
+    // carved out a historical-standing exception here — revocation is not
+    // timestamped, so `verifyObject` judges it against current status even at
+    // a historical clock, and the exception re-ran the raw Ed25519 check with
+    // standing "neutralised". Its comment claimed workspace, object and signer
+    // checks were preserved. They were not: `verifyObject` returns
+    // `key_revoked` BEFORE it binds the signed body's claims, so that path
+    // skipped claim binding entirely and accepted a *transplanted* signature.
+    //
+    // Demonstrated: an attacker with database write access and no private key
+    // could truncate events, re-chain the survivors, insert a fabricated
+    // attestation reusing a genuine signature row, then flip the key to
+    // revoked to force the exception — and the chain verified clean. The
+    // carve-out let an attacker *induce* the condition that bypassed the
+    // check, which is strictly worse than the case it was meant to rescue.
+    //
+    // The accepted cost: rotating a signing key voids the anchors it made, so
+    // re-attest after rotation. An exported bundle remains checkable by a third
+    // party holding the public key, which is the property that matters for
+    // evidence. Restoring an exception requires timestamped revocation, so
+    // standing can be evaluated *at the signing instant* rather than set aside.
+    return { ok: false, reason: verdict.reason };
+  }
+  return { ok: true, trust: verdict.trust };
+}
 
 /**
  * Produces a signed attestation of the workspace's current event-chain head.

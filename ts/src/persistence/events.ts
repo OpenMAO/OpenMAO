@@ -34,6 +34,18 @@ export type EventChainVerification =
   | { ok: true }
   | { ok: false; broken_at: string; reason: string };
 
+/**
+ * Read-time authenticity check for the attestation the truncation arm is
+ * about to trust, injected by the caller because the security layer that can
+ * evaluate it (verifyChainHeadAttestation) sits above persistence and
+ * importing it here would cycle the module graph. verifyAllChains wires the
+ * real check in; the default (omitted) is "not checked", which preserves the
+ * exact pre-existing semantics for embedding callers of EventStore alone.
+ */
+export type AttestationAuthenticityChecker = (
+  attestation: ChainHeadAttestation,
+) => { ok: true } | { ok: false; reason: string };
+
 type PayloadRow = { payload_json: string };
 type SequenceRow = { next_seq: number };
 
@@ -178,8 +190,17 @@ export class EventStore {
    * events (the append-only triggers guard the code path, not the file), and a
    * workspace with no attestation gets the pre-M6 semantics — internally
    * consistent truncation still verifies ok. Saying more would overclaim.
+   *
+   * When the caller supplies an attestation-authenticity check (verifyAllChains
+   * does; the default is "not checked"), a surviving attestation whose
+   * signature does NOT verify is a break with its own distinct reason — never
+   * a satisfied anchor, never a silent skip: an unverifiable attestation does
+   * not count as one.
    */
-  verifyChain(workspaceId: string): EventChainVerification {
+  verifyChain(
+    workspaceId: string,
+    checkAttestationAuthenticity?: AttestationAuthenticityChecker,
+  ): EventChainVerification {
     // The attestation is read BEFORE the walk so the walk can also watch the
     // attested position itself: the event AT the attested sequence must
     // survive with the attested hash, even when the chain has advanced past it.
@@ -220,6 +241,7 @@ export class EventStore {
       head,
       eventCount,
       eventAtAttestedSequence,
+      checkAttestationAuthenticity,
     );
   }
 
@@ -229,15 +251,37 @@ export class EventStore {
    * attestation exists (a legacy database, or one never attested, verifies
    * exactly as before M6) — the arm runs only after the internal walk passes,
    * so it can ADD a break class, never mask one.
+   *
+   * Authenticity is checked FIRST, before any column comparison: the arm's
+   * authority comes from the attestation being signed by an enrolled key, not
+   * from the row asserting it was. An attestation whose signature does not
+   * verify is a break with its own distinct reason — never a satisfied anchor,
+   * never a silent skip. Fail closed: an attestation that cannot be verified
+   * does not count as one.
    */
   private verifyHeadAgainstAttestation(
     attestation: ChainHeadAttestation | null,
     head: Event | null,
     eventCount: number,
     eventAtAttestedSequence: Event | null,
+    checkAttestationAuthenticity?: AttestationAuthenticityChecker,
   ): EventChainVerification {
     if (!attestation) {
       return { ok: true };
+    }
+    if (checkAttestationAuthenticity) {
+      const authenticity = checkAttestationAuthenticity(attestation);
+      if (!authenticity.ok) {
+        return {
+          ok: false,
+          broken_at: attestation.id,
+          reason:
+            `attestation signature invalid: attestation ${attestation.id} (attested head seq ` +
+            `${attestation.head_sequence}) failed read-time verification (${authenticity.reason}) ` +
+            `— a row asserting it was attested is a marker, not provenance, and an attestation ` +
+            `whose signature does not verify against an enrolled key is not an anchor`,
+        };
+      }
     }
     const headSequence = head?.seq ?? 0;
     if (headSequence < attestation.head_sequence) {

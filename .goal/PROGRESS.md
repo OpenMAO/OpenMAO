@@ -11,8 +11,8 @@ actually been accepted versus attempted.
 | M3a Console extraction | **ACCEPTED** | 2026-07-27 | pure move; output byte-identical at source AND runtime; server.ts 2563 -> 1266 |
 | M4 Atomic cutover | **ACCEPTED** | 2026-07-27 | 531 tests; 6 audit findings fixed; spread-forgery closed by driver |
 | M5 Signed decisions | **ACCEPTED** | 2026-07-27 | 551 tests; 2 P0s fixed; null-actor escape deleted, reject() guarded |
-| M6 Chain attestations | code written, 1 finding open (attempt 1/3) | — | 568 tests; verify path trusts a row, not a signature |
-| M7 Docs + evidence | not started | — | — |
+| M6 Chain attestations | **ACCEPTED** | 2026-07-27 | 574 tests; read-time signature verification; transplant hole closed by driver |
+| M7 Docs + evidence | next | — | — |
 
 ## Failure signatures
 
@@ -416,3 +416,38 @@ Credit: the executor's pushback was right — the brief's "head already attested
 literally unimplementable, because the mandated audit event advances the head after every
 attestation, so a naive same-head check can never fire. It implemented the semantically correct
 version instead.
+
+### M6 — ACCEPTED (2026-07-27)
+
+`make check` green, **574 tests** (M5 left it at 551), typecheck clean in the same run,
+`SCHEMA_VERSION` still 8.
+
+The open finding is closed: `verifyChainHeadAttestation` now re-verifies an attestation's signature
+against the **stored enrolled key**, rebuilding the signed body from the attestation row's own
+fields, and `verifyAllChains` / `verify-chain` treat a signature that does not verify as a chain
+break with its own reason — never a satisfied anchor, never a silent skip. An exported attestation
+bundle round-trips: it verifies with every live event, attestation and signature row deleted, which
+is the property an auditor actually needs.
+
+**The fix round introduced something worse, and it is the sixth instance of the branch's pattern.**
+To preserve historical verification after key rotation, the executor added a revoked-key exception
+that re-ran the raw cryptographic check with standing "neutralised". Its comment claimed workspace,
+object and signer binding were preserved. They were not — `verifyObject` returns `key_revoked`
+**before** it binds the signed body's claims, so the exception skipped claim binding entirely and
+accepted a **transplanted signature**. Demonstrated end to end: an attacker with database write
+access and *no private key* could truncate events, re-chain the survivors, insert a fabricated
+attestation reusing a genuine signature row, then flip the key to revoked to force the exception —
+and the chain verified clean. The carve-out let an attacker *induce* the condition that bypassed the
+check, which is strictly worse than the case it rescued.
+
+Driver fix, recorded openly: **removed the exception and failed closed.** Simpler, one verifier, no
+divergent path — and it is the same correction this branch has now made repeatedly, because four of
+the six decisive defects were fail-open. Accepted cost: rotating a signing key voids the anchors it
+made, so re-attest after rotation; an exported bundle stays checkable by a third party holding the
+public key, which is what matters for evidence. Restoring an exception would need timestamped
+revocation, so standing could be judged *at the signing instant* rather than set aside — noted in the
+code for whoever revisits it.
+
+The comment was the tell. It described intent, not behaviour, and it was sincerely wrong. Worth
+stating in M7: **a comment asserting a check happens is not a check** — the same family as a marker
+standing in for provenance.

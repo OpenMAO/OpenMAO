@@ -43,7 +43,7 @@ import {
   authenticateFromProfile,
   resolveCliPrincipal,
 } from "./security/authenticated-principal.js";
-import { attestChainHead } from "./security/chain-attestation.js";
+import { attestChainHead, verifyChainHeadAttestation } from "./security/chain-attestation.js";
 import { resolveCustody, workspaceCustodyDir } from "./security/key-custody.js";
 import {
   attestPrincipalKey,
@@ -274,7 +274,14 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
     // file's journal mode or create WAL/SHM sidecars as a side effect.
     const database = new Database(dbPath, { readonly: true });
     try {
-      const report = verifyAllChains(database);
+      // Read-time authenticity: the truncation arm must not rest on a row
+      // ASSERTING it was attested. The injected check re-verifies the stored
+      // envelope against the stored enrolled key; an attestation whose
+      // signature does not verify is a break, never a satisfied anchor. The
+      // helper writes nothing, so the read-only handle is honored.
+      const report = verifyAllChains(database, (attestation) =>
+        verifyChainHeadAttestation({ database, attestation }),
+      );
       printJson(write, report);
       return report.ok ? 0 : 1;
     } finally {

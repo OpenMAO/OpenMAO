@@ -7,12 +7,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { runCli } from "../src/cli.js";
-import { utcNow, type Workspace, WorkspaceSchema } from "../src/contracts/index.js";
+import { newId, utcNow, type Workspace, WorkspaceSchema } from "../src/contracts/index.js";
 import {
   ChainHeadAttestationStore,
   Database,
   EventStore,
   GovernanceSignatureStore,
+  PrincipalKeyStore,
   verifyAllChains,
   WorkspaceStore,
 } from "../src/persistence/index.js";
@@ -21,8 +22,9 @@ import {
   attestChainHead,
   CHAIN_HEAD_ATTESTED_EVENT,
   ChainAttestationError,
+  verifyChainHeadAttestation,
 } from "../src/security/chain-attestation.js";
-import { verifyObject } from "../src/security/signing.js";
+import { signObject, verifyObject } from "../src/security/signing.js";
 import { StaticSigningBroker } from "../src/security/signing-broker.js";
 import { createSigningOperator } from "./helpers/principals.js";
 
@@ -628,5 +630,360 @@ describe("cli attest + verify-chain", () => {
     };
     expect(report.ok).toBe(false);
     expect(report.workspaces[0]?.verification.reason).toContain("truncation");
+  });
+});
+
+describe("read-time attestation authenticity (the M6 gap)", () => {
+  let database: Database;
+  let events: EventStore;
+  let workspaceId: string;
+
+  beforeEach(async () => {
+    database = new Database();
+    database.initialize();
+    const fixture = JSON.parse(await readFile(fixturePath, "utf8")) as Record<string, unknown>;
+    const workspace: Workspace = WorkspaceSchema.parse(fixture.workspace);
+    new WorkspaceStore(database).save(workspace);
+    workspaceId = workspace.id;
+    events = new EventStore(database);
+  });
+
+  afterEach(() => {
+    database.close();
+  });
+
+  it("a fabricated attestation row with a bad signature is DETECTED, not accepted", () => {
+    // A real attestation exists, then an attacker with file write access
+    // plants a fabricated attestation row with plausible columns but a
+    // signature that does not verify — a marker standing in for provenance.
+    // Pre-fix, verify-chain reported a satisfied anchor here; it must now
+    // report a break.
+    events.append({ workspace_id: workspaceId, kind: "demo.first", actor: "alice" });
+    const operator = createSigningOperator(database, workspaceId, "operator");
+    const { attestation } = attestChainHead({ database, workspaceId, signer: operator.signer });
+
+    // Fabricate: a signature row whose bytes were signed by a DIFFERENT key —
+    // cryptographically a valid signature, but not by the enrolled key the
+    // header claims — and an attestation row pointing at it.
+    const signature = new GovernanceSignatureStore(database).forObject(
+      workspaceId,
+      "chain_attestation",
+      attestation.id,
+    )[0];
+    const wrongKeyPair = generateKeyPairSync("ed25519");
+    // The fabricated attestation id is fixed up-front so the forged envelope's
+    // object_id claim and the fabricated row agree — the pair is internally
+    // consistent, which is exactly what makes it a convincing fake.
+    const fabricatedId = newId("chainatt");
+    const forged = signObject({
+      objectClass: "chain_attestation",
+      keyId: operator.keyId, // CLAIMS the enrolled key id — the lie
+      body: {
+        workspace_id: workspaceId,
+        object_id: fabricatedId,
+        signer: operator.principal.principal_id,
+        signer_key_id: operator.keyId,
+        head_sequence: attestation.head_sequence,
+        head_hash: attestation.head_hash,
+        event_count: attestation.event_count,
+        previous_attestation_id: null,
+        attested_at: attestation.attested_at,
+      },
+      privateKey: wrongKeyPair.privateKey, // ...but signed by THIS key
+    });
+    const forgedSignatureId = newId("govsig");
+    database.connection
+      .prepare(
+        `INSERT INTO governance_signatures
+           (id, workspace_id, object_type, object_id, signer_key_id, signer_principal_id,
+            signed_bytes, signature, domain_tag, signed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        forgedSignatureId,
+        workspaceId,
+        "chain_attestation",
+        fabricatedId,
+        operator.keyId,
+        operator.principal.principal_id,
+        `${forged.protectedHeaderSegment}.${forged.payloadSegment}`,
+        forged.signatureSegment,
+        signature?.domain_tag ?? "",
+        attestation.attested_at,
+      );
+    // The fabricated attestation becomes the LATEST by head_sequence.
+    database.connection
+      .prepare(
+        `INSERT INTO chain_head_attestations
+           (id, workspace_id, head_sequence, head_hash, event_count,
+            previous_attestation_id, signer_key_id, signer_principal_id,
+            signature_id, attested_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        fabricatedId,
+        workspaceId,
+        attestation.head_sequence + 1,
+        attestation.head_hash,
+        attestation.event_count,
+        attestation.id,
+        operator.keyId,
+        operator.principal.principal_id,
+        forgedSignatureId,
+        attestation.attested_at,
+      );
+
+    // The truncation arm sees the fabricated row as the latest attestation.
+    const latest = new ChainHeadAttestationStore(database).latestForWorkspace(workspaceId);
+    expect(latest?.id).toBe(fabricatedId);
+
+    // The direct helper rejects it (wrong signing key -> signature_invalid).
+    if (!latest) {
+      throw new Error("expected the fabricated attestation to be the latest");
+    }
+    const verdict = verifyChainHeadAttestation({ database, attestation: latest });
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) {
+      expect(verdict.reason).toBe("signature_invalid");
+    }
+
+    // And the full verification path reports a BREAK, not a satisfied anchor.
+    const verification = new EventStore(database).verifyChain(workspaceId, (a) =>
+      verifyChainHeadAttestation({ database, attestation: a }),
+    );
+    expect(verification.ok).toBe(false);
+    if (!verification.ok) {
+      expect(verification.broken_at).toBe(fabricatedId);
+      expect(verification.reason).toContain("attestation signature invalid");
+    }
+    expect(verifyAllChains(database).ok).toBe(false);
+  });
+
+  it("a genuine attestation still verifies at read time", () => {
+    events.append({ workspace_id: workspaceId, kind: "demo.first", actor: "alice" });
+    const operator = createSigningOperator(database, workspaceId, "operator");
+    const { attestation } = attestChainHead({ database, workspaceId, signer: operator.signer });
+
+    const verdict = verifyChainHeadAttestation({ database, attestation });
+    expect(verdict.ok).toBe(true);
+
+    // The default path (verifyAllChains wires the real checker) stays ok.
+    expect(
+      new EventStore(database).verifyChain(workspaceId, (a) =>
+        verifyChainHeadAttestation({ database, attestation: a }),
+      ),
+    ).toEqual({ ok: true });
+    expect(verifyAllChains(database).ok).toBe(true);
+  });
+
+  it("an attestation whose signature row was deleted is a break (signature_missing), not a skip", () => {
+    events.append({ workspace_id: workspaceId, kind: "demo.first", actor: "alice" });
+    const operator = createSigningOperator(database, workspaceId, "operator");
+    const { attestation } = attestChainHead({ database, workspaceId, signer: operator.signer });
+
+    // The attestation row survives but its governance_signatures row is gone —
+    // the marker remains, the provenance does not. Fail closed. The FK on
+    // signature_id guards the code path; a raw file attacker disables it (the
+    // same posture as the trigger drops elsewhere in this file).
+    database.connection.pragma("foreign_keys = OFF");
+    database.connection
+      .prepare("DELETE FROM governance_signatures WHERE id = ?")
+      .run(attestation.signature_id);
+    database.connection.pragma("foreign_keys = ON");
+
+    const verdict = verifyChainHeadAttestation({ database, attestation });
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) {
+      expect(verdict.reason).toBe("signature_missing");
+    }
+    const verification = new EventStore(database).verifyChain(workspaceId, (a) =>
+      verifyChainHeadAttestation({ database, attestation: a }),
+    );
+    expect(verification.ok).toBe(false);
+    if (!verification.ok) {
+      expect(verification.reason).toContain("attestation signature invalid");
+    }
+  });
+
+  it("revoked-signer semantics: a revoked signing key fails closed — the anchor no longer verifies", () => {
+    // JUDGEMENT CALL, documented here and in the helper: an anchor made while
+    // the key was valid is historical evidence, so revoking the key AFTER
+    // attesting does NOT void the anchor. This is the CRL-at-signing-time
+    // reading, and it is the safe direction: revocation is not timestamped in
+    // the schema, and failing closed on it would let an attacker who steals a
+    // key, rewrites the chain, and plants a fabricated attestation LAUNDER it
+    // by revoking the key (the row then verifies against a disowned key) —
+    // while honest key rotation would silently void real anchors. The crypto
+    // binding is unaffected: only the untimestamped revoked bit is set aside.
+    events.append({ workspace_id: workspaceId, kind: "demo.first", actor: "alice" });
+    const operator = createSigningOperator(database, workspaceId, "operator");
+    const { attestation } = attestChainHead({ database, workspaceId, signer: operator.signer });
+
+    // Revoke the key (stored status flips to "revoked").
+    new PrincipalKeyStore(database).revoke(operator.keyId);
+
+    // Fail closed: revocation is untimestamped, so it cannot be judged at a
+    // historical instant, and the exception that used to carry these anchors
+    // skipped claim binding entirely (verifyObject returns key_revoked BEFORE
+    // it binds workspace/object/signer), which let a transplanted signature
+    // through. Voiding anchors on rotation is the accepted cost; re-attest.
+    const verdict = verifyChainHeadAttestation({ database, attestation });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.ok === false && verdict.reason).toBe("key_revoked");
+
+    // And the verification path treats it as a break, not a satisfied anchor.
+    expect(
+      new EventStore(database).verifyChain(workspaceId, (a) =>
+        verifyChainHeadAttestation({ database, attestation: a }),
+      ).ok,
+    ).toBe(false);
+  });
+
+  it("a never-enrolled key's attestation is NOT historical evidence and fails", () => {
+    // The counterpart to the revoked case: a key that was NEVER enrolled in
+    // this workspace cannot mint an anchor, then or now. unknown_key stays
+    // fatal — no historical fallback applies.
+    events.append({ workspace_id: workspaceId, kind: "demo.first", actor: "alice" });
+    const operator = createSigningOperator(database, workspaceId, "operator");
+    const { attestation } = attestChainHead({ database, workspaceId, signer: operator.signer });
+
+    const ghostKey = generateKeyPairSync("ed25519");
+    const ghostKeyId = newId("prinkey");
+    // The fabricated attestation id is fixed up-front so the forged envelope's
+    // object_id claim and the fabricated row agree — a consistent fake that
+    // reaches the key-resolution step (where the ghost key is unknown).
+    const fabricatedId = newId("chainatt");
+    const forged = signObject({
+      objectClass: "chain_attestation",
+      keyId: ghostKeyId,
+      body: {
+        workspace_id: workspaceId,
+        object_id: fabricatedId,
+        signer: operator.principal.principal_id,
+        signer_key_id: ghostKeyId,
+        head_sequence: attestation.head_sequence,
+        head_hash: attestation.head_hash,
+        event_count: attestation.event_count,
+        previous_attestation_id: null,
+        attested_at: attestation.attested_at,
+      },
+      privateKey: ghostKey.privateKey,
+    });
+    const forgedSignatureId = newId("govsig");
+    // The signer_key_id FK guards the code path; a raw file attacker disabling
+    // it is the same posture as the trigger drops elsewhere in this file.
+    database.connection.pragma("foreign_keys = OFF");
+    database.connection
+      .prepare(
+        `INSERT INTO governance_signatures
+           (id, workspace_id, object_type, object_id, signer_key_id, signer_principal_id,
+            signed_bytes, signature, domain_tag, signed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        forgedSignatureId,
+        workspaceId,
+        "chain_attestation",
+        fabricatedId,
+        ghostKeyId,
+        operator.principal.principal_id,
+        `${forged.protectedHeaderSegment}.${forged.payloadSegment}`,
+        forged.signatureSegment,
+        "application/vnd.openmao.chain-attestation.v1+json",
+        attestation.attested_at,
+      );
+    database.connection.pragma("foreign_keys = OFF");
+    database.connection
+      .prepare(
+        `INSERT INTO chain_head_attestations
+           (id, workspace_id, head_sequence, head_hash, event_count,
+            previous_attestation_id, signer_key_id, signer_principal_id,
+            signature_id, attested_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        fabricatedId,
+        workspaceId,
+        attestation.head_sequence + 1,
+        attestation.head_hash,
+        attestation.event_count,
+        attestation.id,
+        ghostKeyId,
+        operator.principal.principal_id,
+        forgedSignatureId,
+        attestation.attested_at,
+      );
+    database.connection.pragma("foreign_keys = ON");
+
+    const latest = new ChainHeadAttestationStore(database).latestForWorkspace(workspaceId);
+    if (!latest) {
+      throw new Error("expected the fabricated attestation to be the latest");
+    }
+    const verdict = verifyChainHeadAttestation({ database, attestation: latest });
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) {
+      expect(verdict.reason).toBe("unknown_key");
+    }
+  });
+
+  it("round-trip: an exported attestation re-verified against the same stored key still checks out", () => {
+    // The property the milestone exists to provide an auditor: the attestation
+    // and its signed bytes can be EXPORTED (copied out of the live database)
+    // and re-verified independently of the live event rows, against the stored
+    // enrolled key. Nothing from the in-memory chain is leaned on.
+    events.append({ workspace_id: workspaceId, kind: "demo.first", actor: "alice" });
+    const second = events.append({ workspace_id: workspaceId, kind: "demo.second", actor: "bob" });
+    const operator = createSigningOperator(database, workspaceId, "operator");
+    const { attestation } = attestChainHead({ database, workspaceId, signer: operator.signer });
+
+    // EXPORT: serialize the attestation row and its signature row as a
+    // detached bundle (what an operator would copy out for an auditor).
+    const signature = new GovernanceSignatureStore(database).forObject(
+      workspaceId,
+      "chain_attestation",
+      attestation.id,
+    )[0];
+    const exportedBundle = dumpJson({ attestation, signature });
+
+    // Simulate verification LATER and ELSEWHERE: wipe the live event rows and
+    // the attestation/signature rows, so the exported bundle is the ONLY
+    // artifact. (The principal + enrolled key rows survive: the auditor
+    // trusts the registry's enrolled key, not the chain.)
+    database.connection.exec("DROP TRIGGER events_no_delete");
+    database.connection.exec("DROP TRIGGER chain_head_attestations_no_delete");
+    database.connection.prepare("DELETE FROM events WHERE workspace_id = ?").run(workspaceId);
+    database.connection
+      .prepare("DELETE FROM chain_head_attestations WHERE workspace_id = ?")
+      .run(workspaceId);
+    database.connection
+      .prepare("DELETE FROM governance_signatures WHERE workspace_id = ?")
+      .run(workspaceId);
+
+    // Re-present the exported bundle and verify it against the stored key.
+    const bundle = JSON.parse(exportedBundle) as {
+      attestation: typeof attestation;
+      signature: NonNullable<typeof signature>;
+    };
+    const [protectedHeaderSegment, payloadSegment] = bundle.signature.signed_bytes.split(".");
+    const verdict = verifyObject({
+      database,
+      workspaceId,
+      expectedClass: "chain_attestation",
+      expectedObjectId: bundle.attestation.id,
+      envelope: {
+        protectedHeaderSegment: protectedHeaderSegment ?? "",
+        payloadSegment: payloadSegment ?? "",
+        signatureSegment: bundle.signature.signature,
+      },
+      now: bundle.attestation.attested_at,
+    });
+    expect(verdict.ok).toBe(true);
+
+    // The exported claims are intact and match the head the bundle pins.
+    const body = JSON.parse(
+      Buffer.from(payloadSegment ?? "", "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    expect(body.head_hash).toBe(second.hash);
+    expect(body.head_sequence).toBe(second.seq);
   });
 });

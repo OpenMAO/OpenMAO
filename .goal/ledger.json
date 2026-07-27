@@ -1,4 +1,4 @@
-{ "invocations": {"driver": 19, "k3-worker": 18, "gpt-worker": 10},
-  "iterations": {"M1": 3, "M2": 3, "M3": 3, "M3a": 1, "M4": 2, "M5": 2, "M6": 1},
-  "wall_clock_seconds": 59100, "resumes_without_progress": 0,
-  "last_accepted_milestone": "M5", "tick_count": 19, "budget_caps": {"ticks": 24, "wall_clock_hours": 12} }
+{ "invocations": {"driver": 20, "k3-worker": 20, "gpt-worker": 10},
+  "iterations": {"M1": 3, "M2": 3, "M3": 3, "M3a": 1, "M4": 2, "M5": 2, "M6": 2},
+  "wall_clock_seconds": 66000, "resumes_without_progress": 0,
+  "last_accepted_milestone": "M6", "tick_count": 20, "budget_caps": {"ticks": 24, "wall_clock_hours": 12} }
