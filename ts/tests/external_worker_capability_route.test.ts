@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createServer } from "../src/api/server.js";
 import { Database } from "../src/persistence/index.js";
-import { WORKSPACE_ID } from "../src/spine/index.js";
+import { SpineService, WORKSPACE_ID } from "../src/spine/index.js";
 import {
   prepareReferenceWorkerDemo,
   REFERENCE_CREDENTIAL_HANDLE,
@@ -16,7 +16,11 @@ import {
   REFERENCE_TASK_ID,
   REFERENCE_WORKER_ID,
 } from "../src/workers/index.js";
-import { principalHeaders, seedPrincipalAtPath } from "./helpers/principals.js";
+import {
+  authenticateOperatorPrincipal,
+  principalHeaders,
+  seedPrincipalAtPath,
+} from "./helpers/principals.js";
 
 const MOCK_SECRET = "local_mock_secret_do_not_serialize";
 
@@ -74,7 +78,11 @@ beforeEach(async () => {
   const database = new Database(dbPath);
   database.initialize();
   // Seed worker/work/run/envelope/task/capability WITHOUT invoking — run stays `running`.
-  prepareReferenceWorkerDemo(database);
+  new SpineService(database).initDemoWorkspace();
+  prepareReferenceWorkerDemo(
+    database,
+    authenticateOperatorPrincipal(database, WORKSPACE_ID, "Reference Demo Operator"),
+  );
   database.close();
 
   operatorToken = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "External Worker Test").token;

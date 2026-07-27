@@ -47,7 +47,10 @@ import {
   materializeRejectedCapabilityApproval,
 } from "../runtime/capabilities.js";
 import { openLocalDatabase } from "../runtime/local.js";
-import { enrichPrincipalIdentity } from "../security/authenticated-principal.js";
+import {
+  type AuthenticatedPrincipal,
+  enrichPrincipalIdentity,
+} from "../security/authenticated-principal.js";
 import { PrincipalAuthService } from "../security/principal-auth.js";
 import { SensitiveMaterialError, safeErrorMessage } from "../security/sensitive-material.js";
 import { WorkerAuthService } from "../security/worker-auth.js";
@@ -184,6 +187,13 @@ type RequestContext = {
   actor: string;
   workspaceId: string;
   principal: Principal;
+  /**
+   * The branded authenticated identity behind an operator request (null for a
+   * worker-token request, whose authority is the worker itself). Callers that
+   * must pass a verified identity on to a service — never a bare string —
+   * take it from here; it cannot be fabricated at the call site.
+   */
+  authenticated: AuthenticatedPrincipal | null;
 };
 
 // A worker token is permitted ONLY these routes; everything else (envelope issuance, approvals, and
@@ -218,15 +228,6 @@ function authenticateContext(
   url: URL,
   database: Database,
 ): RequestContext | null {
-  for (const rejected of REJECTED_HEADERS) {
-    if (headerValue(request, rejected) !== null) {
-      sendJson(response, 400, {
-        error: rejected === ACTOR_HEADER ? "actor_header_rejected" : "operator_token_removed",
-        message: `${rejected} is not accepted: identity is established by a principal credential (${PRINCIPAL_TOKEN_HEADER})`,
-      });
-      return null;
-    }
-  }
   const identity = new PrincipalAuthService(database).resolve(
     headerValue(request, PRINCIPAL_TOKEN_HEADER),
   );
@@ -255,6 +256,7 @@ function authenticateContext(
         principalId: principal.principal_id,
         keyId: principal.key_id,
       },
+      authenticated: principal,
     };
   }
   // Worker token → a scoped principal. The actor and workspace are FORCED to the resolved worker; a
@@ -272,6 +274,7 @@ function authenticateContext(
         principalId: workerPrincipal.worker_id,
         keyId: null,
       },
+      authenticated: null,
     };
   }
   sendJson(response, 403, { error: "forbidden" });
@@ -287,6 +290,19 @@ function requireDemoWorkspace(
   }
   sendJson(response, 400, { error: "unsupported_demo_workspace", workspace_id: workspaceId });
   return false;
+}
+
+/**
+ * The authenticated operator behind a demo route. Unreachable for a worker
+ * principal (the worker allowlist already 403s these routes), so a missing
+ * identity here is a server bug, not a client error — throw rather than
+ * record under a fabricated actor.
+ */
+function operatorOf(context: RequestContext): AuthenticatedPrincipal {
+  if (!context.authenticated) {
+    throw new Error("demo route reached without an authenticated operator principal");
+  }
+  return context.authenticated;
 }
 
 function ensureDefaultWorkspace(
@@ -344,6 +360,20 @@ export function createServer(options: ServerOptions = {}) {
     if (!isLoopbackAddress(request.socket.remoteAddress)) {
       sendJson(response, 403, { error: "loopback_only" });
       return;
+    }
+
+    // The self-assertion fence applies to EVERY route — including the
+    // unauthenticated /health and /console: presenting a retired identity
+    // header is a spoof attempt, and the rule is 400 with no exceptions.
+    // Checked before routing so no dispatch order can bypass it again.
+    for (const rejected of REJECTED_HEADERS) {
+      if (headerValue(request, rejected) !== null) {
+        sendJson(response, 400, {
+          error: rejected === ACTOR_HEADER ? "actor_header_rejected" : "operator_token_removed",
+          message: `${rejected} is not accepted: identity is established by a principal credential (${PRINCIPAL_TOKEN_HEADER})`,
+        });
+        return;
+      }
     }
 
     const database = openLocalDatabase(options.dbPath);
@@ -568,14 +598,14 @@ export function createServer(options: ServerOptions = {}) {
         if (!requireDemoWorkspace(response, context.workspaceId)) {
           return;
         }
-        sendJson(response, 200, await runReferenceWorkerDemo(database));
+        sendJson(response, 200, await runReferenceWorkerDemo(database, operatorOf(context)));
         return;
       }
       if (request.method === "POST" && url.pathname === "/workers/reference-demo/approve") {
         if (!requireDemoWorkspace(response, context.workspaceId)) {
           return;
         }
-        sendJson(response, 200, await approveReferenceWorkerDemo(database));
+        sendJson(response, 200, await approveReferenceWorkerDemo(database, operatorOf(context)));
         return;
       }
       if (request.method === "GET" && url.pathname === "/ingestion") {
@@ -1134,7 +1164,7 @@ export function createServer(options: ServerOptions = {}) {
           approval.payload.target_type === "capability_call" &&
           approval.run_id === REFERENCE_RUN_ID
         ) {
-          sendJson(response, 200, await approveReferenceWorkerDemo(database));
+          sendJson(response, 200, await approveReferenceWorkerDemo(database, operatorOf(context)));
         } else if (approval.payload.target_type === "capability_call") {
           new ApprovalService(database).approve(approvalRoute.approvalId, {
             workspace_id: context.workspaceId,

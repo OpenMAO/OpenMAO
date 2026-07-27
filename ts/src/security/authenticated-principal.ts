@@ -10,12 +10,39 @@ import { PrincipalAuthService, type ResolvedPrincipalIdentity } from "./principa
 import { ensureRootOperator, readProfileFile } from "./principal-bootstrap.js";
 
 /**
+ * The unforgeable marker on an authenticated principal. The symbol is
+ * module-private: it never appears in .d.ts consumers can name, so an object
+ * literal carrying it does not typecheck outside the authentication paths in
+ * this module, and at runtime only objects this module minted carry it.
+ * `assertAuthenticatedPrincipal` is the exported runtime half of the pair.
+ */
+const AUTHENTICATED: unique symbol = Symbol("openmao.authenticated-principal");
+
+/**
+ * Identity-based registry of principals this module actually minted.
+ *
+ * The `AUTHENTICATED` symbol alone is not sufficient at runtime: assigned in an
+ * object literal it is an *enumerable* own symbol, so `{ ...principal, actor:
+ * victim }` copies the brand and a spread forgery passes an `in` check. A
+ * caller holding any valid credential could therefore record events as any
+ * principal — the identity-naming the cutover exists to remove.
+ *
+ * Membership is by object identity, and a spread produces a new object, so it
+ * cannot be forged by copying properties. The symbol is retained for typing.
+ */
+const MINTED_PRINCIPALS = new WeakSet<object>();
+
+/**
  * The single authenticated-identity shape the whole boundary resolves to, so
  * M4 can flip HTTP, console, and CLI ATOMICALLY by changing resolvers — never
  * by editing call sites. `key_id` is nullable (an identity may authenticate
  * without a signing key), `can_sign` reports whether an active enrolled key
  * exists, and `dev_bootstrap` carries the honesty valve forward so a
  * development identity can never present itself as production trust.
+ *
+ * The branded marker makes the identity unforgeable by construction: only the
+ * resolvers in this module can mint a value of this type, so a boundary taking
+ * an AuthenticatedPrincipal cannot be handed a caller-invented identity.
  */
 export type AuthenticatedPrincipal = {
   principal_id: string;
@@ -26,7 +53,23 @@ export type AuthenticatedPrincipal = {
   key_id: string | null;
   can_sign: boolean;
   dev_bootstrap: boolean;
+  readonly [AUTHENTICATED]: true;
 };
+
+/**
+ * Runtime half of the brand: a hand-built context fails HERE, at the boundary
+ * that was asked to record under it — not silently downstream. Type-checked
+ * callers never reach the throw; it exists for untyped (or `as`-cast) callers.
+ */
+export function assertAuthenticatedPrincipal(
+  value: unknown,
+): asserts value is AuthenticatedPrincipal {
+  if (typeof value !== "object" || value === null || !MINTED_PRINCIPALS.has(value)) {
+    throw new Error(
+      "identity must be an authenticated principal resolved through the credential path (resolveCliPrincipal / authenticateFromProfile / enrichPrincipalIdentity) — a hand-built context is not an identity",
+    );
+  }
+}
 
 /**
  * The one resolver every CLI actor call site goes through. Identity is real:
@@ -84,7 +127,7 @@ export function enrichPrincipalIdentity(
     new PrincipalKeyStore(database)
       .listForPrincipal(identity.workspace_id, principal.id)
       .find((key) => key.status === "active") ?? null;
-  return {
+  const minted: AuthenticatedPrincipal = {
     principal_id: principal.id,
     workspace_id: identity.workspace_id,
     kind: principal.kind,
@@ -94,7 +137,10 @@ export function enrichPrincipalIdentity(
     key_id: activeKey?.id ?? null,
     can_sign: activeKey !== null,
     dev_bootstrap: principal.dev_bootstrap,
+    [AUTHENTICATED]: true,
   };
+  MINTED_PRINCIPALS.add(minted);
+  return minted;
 }
 
 /**

@@ -95,6 +95,7 @@ function positionalArgs(args: string[]): string[] {
     "--role",
     "--capabilities",
     "--worker",
+    "--worker-token",
     "--input",
     "--output",
     "--status",
@@ -268,7 +269,9 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       write(JSON.stringify({ ok: false, error: `database does not exist: ${dbPath}` }, null, 2));
       return 1;
     }
-    const database = new Database(dbPath);
+    // Opened READ-ONLY: verification is inspection, so it must not flip the
+    // file's journal mode or create WAL/SHM sidecars as a side effect.
+    const database = new Database(dbPath, { readonly: true });
     try {
       const report = verifyAllChains(database);
       printJson(write, report);
@@ -346,12 +349,17 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
     }
     if (command === "worker" && subcommand === "demo") {
       requireDefaultWorkspace(selectedWorkspace);
-      printJson(write, await runReferenceWorkerDemo(database));
+      // Seed BEFORE resolving the principal: the resolver plants a bare
+      // workspace row when none exists, and the demo seeder refuses to adopt
+      // one (workspace already exists) — it must come up through the seeder.
+      spine.initDemoWorkspace();
+      printJson(write, await runReferenceWorkerDemo(database, cliPrincipal()));
       return 0;
     }
     if (command === "worker" && subcommand === "demo-approve") {
       requireDefaultWorkspace(selectedWorkspace);
-      printJson(write, await approveReferenceWorkerDemo(database));
+      spine.initDemoWorkspace();
+      printJson(write, await approveReferenceWorkerDemo(database, cliPrincipal()));
       return 0;
     }
     if (command === "workers" && subcommand === "register") {
@@ -466,16 +474,40 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       if (!workId) {
         throw new Error("work id is required");
       }
+      // A worker's outcome is a worker's act: it authenticates with the
+      // worker's own credential (`workers mint-token`), and BOTH the recorded
+      // worker_id and the event actor are forced from that credential. The
+      // --worker flag can no longer name an identity — it may only agree with
+      // the credential, so a mismatch is a hard error, never a spoof.
+      const workerToken = optionValue(args, "--worker-token");
+      if (!workerToken) {
+        throw new Error(
+          "--worker-token is required: an outcome is recorded against the authenticated worker credential (`workers mint-token <worker_id>`)",
+        );
+      }
+      const worker = new WorkerAuthService(database).resolve(workerToken);
+      if (!worker || worker.workspace_id !== selectedWorkspace) {
+        throw new Error(
+          "worker credential does not resolve to an enabled worker in this workspace",
+        );
+      }
+      const namedWorker = requireOption(args, "--worker");
+      if (namedWorker !== worker.worker_id) {
+        throw new Error(
+          `--worker ${namedWorker} does not match the authenticated worker credential (${worker.worker_id})`,
+        );
+      }
       printJson(
         write,
         new WorkService(database).submitWorkerOutcome({
           id: optionValue(args, "--id"),
           workspace_id: selectedWorkspace,
           envelope_id: requireOption(args, "--envelope"),
-          worker_id: requireOption(args, "--worker"),
+          worker_id: worker.worker_id,
           status: (optionValue(args, "--status") ?? "completed") as never,
           summary: requireOption(args, "--summary"),
           output: jsonOption(optionValue(args, "--output") ?? optionValue(args, "--input")),
+          actor: worker.worker_id,
           idempotency_key: `work:${workId}:outcome:${requireOption(args, "--envelope")}`,
         }),
       );
@@ -830,7 +862,7 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
         approval?.payload.target_type === "capability_call" &&
         approval.run_id === REFERENCE_RUN_ID
       ) {
-        printJson(write, await approveReferenceWorkerDemo(database));
+        printJson(write, await approveReferenceWorkerDemo(database, cliPrincipal()));
       } else if (approval?.payload.target_type === "capability_call") {
         new ApprovalService(database).approve(approvalId, {
           workspace_id: selectedWorkspace,

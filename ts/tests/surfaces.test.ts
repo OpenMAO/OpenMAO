@@ -9,14 +9,17 @@ import { createServer } from "../src/api/server.js";
 import { runCli } from "../src/cli.js";
 import { WorkItemSchema, WorkspaceSchema } from "../src/contracts/index.js";
 import { OrgChangeService } from "../src/org/index.js";
-import { Database, WorkItemStore, WorkspaceStore } from "../src/persistence/index.js";
+import { Database, EventStore, WorkItemStore, WorkspaceStore } from "../src/persistence/index.js";
+import { WorkerAuthService } from "../src/security/worker-auth.js";
 import {
   COORDINATOR_AGENT_ID,
   PROMOTION_APPROVAL_ID,
   RUN_ID,
+  SpineService,
   WORK_ITEM_ID,
   WORKSPACE_ID,
 } from "../src/spine/index.js";
+import { WorkService } from "../src/work/index.js";
 import {
   REFERENCE_CAPABILITY_APPROVAL_ID,
   REFERENCE_RUN_ID,
@@ -262,6 +265,17 @@ describe("TypeScript operator surfaces", () => {
         write: envelopesOutput.write,
       }),
     ).toBe(0);
+    // The outcome is a worker's act: the command authenticates with the
+    // worker's own credential, minted here by the operator.
+    const mintOutput = capture();
+    expect(
+      await runCli(["workers", "mint-token", "worker_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], {
+        dbPath,
+        write: mintOutput.write,
+      }),
+    ).toBe(0);
+    const workerToken = (JSON.parse(mintOutput.lines[0] ?? "{}") as { token: string }).token;
+    expect(workerToken).toMatch(/^wkr_/);
     expect(
       await runCli(
         [
@@ -274,6 +288,8 @@ describe("TypeScript operator surfaces", () => {
           "envelope_cccccccccccccccccccccccccccccccc",
           "--worker",
           "worker_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "--worker-token",
+          workerToken,
           "--status",
           "completed",
           "--summary",
@@ -337,6 +353,100 @@ describe("TypeScript operator surfaces", () => {
     expect(JSON.parse(reviewOutput.lines[0] ?? "{}").status).toBe("done");
     expect(JSON.parse(ingestOutput.lines[0] ?? "{}").kind).toBe("trace");
     expect(JSON.parse(ingestionListOutput.lines[0] ?? "[]")).toHaveLength(1);
+  });
+
+  it("work outcome requires the worker's own credential and records the authenticated worker", async () => {
+    // The closed boundary: --worker can no longer NAME the acting identity.
+    // Without a credential the command refuses outright; a credential for a
+    // different worker cannot be used to act as this one; and the recorded
+    // actor is forced from the credential, never from the flag.
+    const OUTCOME_WORKER = "worker_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const OTHER_WORKER = "worker_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const OUTCOME_WORK = "work_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const OUTCOME_ENVELOPE = "envelope_cccccccccccccccccccccccccccccccc";
+
+    const setup = new Database(dbPath);
+    setup.initialize();
+    let workerToken: string;
+    let otherToken: string;
+    try {
+      new SpineService(setup).initDemoWorkspace();
+      const service = new WorkService(setup);
+      service.registerWorker({
+        id: OUTCOME_WORKER,
+        workspace_id: WORKSPACE_ID,
+        name: "Outcome Worker",
+        runtime: "openmao.test",
+        actor: "test_setup",
+      });
+      service.registerWorker({
+        id: OTHER_WORKER,
+        workspace_id: WORKSPACE_ID,
+        name: "Other Worker",
+        runtime: "openmao.test",
+        actor: "test_setup",
+      });
+      service.createWork({
+        id: OUTCOME_WORK,
+        workspace_id: WORKSPACE_ID,
+        title: "Authenticated outcome",
+        objective: "Outcome records the credential's worker.",
+        owner: OUTCOME_WORKER,
+        actor: "test_setup",
+      });
+      service.createBoundedEnvelope({
+        id: OUTCOME_ENVELOPE,
+        workspace_id: WORKSPACE_ID,
+        work_item_id: OUTCOME_WORK,
+        worker_id: OUTCOME_WORKER,
+        issued_by: { actor_type: "operator", actor_id: "test_setup", display_name: null },
+      });
+      const auth = new WorkerAuthService(setup);
+      workerToken = auth.mint({ workspace_id: WORKSPACE_ID, worker_id: OUTCOME_WORKER }).token;
+      otherToken = auth.mint({ workspace_id: WORKSPACE_ID, worker_id: OTHER_WORKER }).token;
+    } finally {
+      setup.close();
+    }
+
+    const outcomeArgs = (token?: string): string[] => [
+      "work",
+      "outcome",
+      OUTCOME_WORK,
+      "--envelope",
+      OUTCOME_ENVELOPE,
+      "--worker",
+      OUTCOME_WORKER,
+      "--summary",
+      "Done.",
+      ...(token ? ["--worker-token", token] : []),
+    ];
+
+    // No credential: refused, and nothing is recorded.
+    await expect(runCli(outcomeArgs(), { dbPath })).rejects.toThrow(/--worker-token is required/);
+    // An invalid credential: refused.
+    await expect(runCli(outcomeArgs("wkr_forged"), { dbPath })).rejects.toThrow(
+      /does not resolve to an enabled worker/,
+    );
+    // A different worker's credential: cannot act as the envelope's worker.
+    await expect(runCli(outcomeArgs(otherToken), { dbPath })).rejects.toThrow(
+      /does not match the authenticated worker credential/,
+    );
+
+    const outcomeOutput = capture();
+    expect(await runCli(outcomeArgs(workerToken), { dbPath, write: outcomeOutput.write })).toBe(0);
+    expect(JSON.parse(outcomeOutput.lines[0] ?? "{}").worker_id).toBe(OUTCOME_WORKER);
+
+    const check = new Database(dbPath);
+    try {
+      const outcomeEvent = new EventStore(check)
+        .listForWorkspace(WORKSPACE_ID)
+        .find((event) => event.kind === "work.outcome_submitted");
+      // The recorded actor is the credential's worker — identical in shape to
+      // the HTTP worker-token path — and never a caller-supplied string.
+      expect(outcomeEvent?.actor).toBe(OUTCOME_WORKER);
+    } finally {
+      check.close();
+    }
   });
 
   it("runs learning scans and proposal review through the CLI", async () => {
@@ -612,6 +722,42 @@ describe("TypeScript operator surfaces", () => {
       expect(consoleHtml).toContain('data-view="traces"');
       expect(consoleHtml).toContain("/approvals/");
       expect(consoleHtml).not.toContain(principal.token);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it("applies the self-assertion fence to /health and /console too", async () => {
+    // The fence used to live inside authenticateContext, which these two
+    // UNAUTHENTICATED routes return before — so they took x-openmao-actor and
+    // answered 200 where the rule says 400. It now runs before routing.
+    const server = createServer({ dbPath });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    try {
+      const health = await fetch(`${baseUrl}/health`);
+      const consolePage = await fetch(`${baseUrl}/console`);
+      const healthForged = await fetch(`${baseUrl}/health`, {
+        headers: { "x-openmao-actor": "mallory" },
+      });
+      const consoleForged = await fetch(`${baseUrl}/console`, {
+        headers: { "x-openmao-actor": "mallory" },
+      });
+      const healthLegacyToken = await fetch(`${baseUrl}/health`, {
+        headers: { "x-openmao-operator-token": "test-operator-token" },
+      });
+
+      expect(health.status).toBe(200);
+      expect(consolePage.status).toBe(200);
+      expect(healthForged.status).toBe(400);
+      expect(await healthForged.json()).toMatchObject({ error: "actor_header_rejected" });
+      expect(consoleForged.status).toBe(400);
+      expect(await consoleForged.json()).toMatchObject({ error: "actor_header_rejected" });
+      expect(healthLegacyToken.status).toBe(400);
+      expect(await healthLegacyToken.json()).toMatchObject({ error: "operator_token_removed" });
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));

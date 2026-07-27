@@ -356,6 +356,12 @@ export async function attestPrincipalKey(input: {
     now,
   });
   return input.database.transaction(() => {
+    // Authorization is atomic with the mutation: standing is re-read INSIDE
+    // the writing transaction, so a principal disabled or a key revoked
+    // between the verification read and BEGIN makes the write fail and roll
+    // back — an authority record can never be ordered after the withdrawal of
+    // that authority.
+    resolveStoredOperator(input.database, input.workspaceId, input.attester, "attestation");
     const attestation = new PrincipalKeyAttestationStore(input.database).record({
       id: newId("prinatt"),
       workspace_id: input.workspaceId,
@@ -448,6 +454,10 @@ export async function revokePrincipalKey(input: {
     now,
   });
   return input.database.transaction(() => {
+    // Same atomicity rule as attestation: the revoker's standing is re-read
+    // inside the writing transaction, so a withdrawal that lands after the
+    // verification read rolls this write back instead of being recorded.
+    resolveStoredOperator(input.database, input.workspaceId, input.revoker, "revocation");
     const revocation = new PrincipalKeyRevocationStore(input.database).record({
       id: newId("prinrev"),
       workspace_id: input.workspaceId,

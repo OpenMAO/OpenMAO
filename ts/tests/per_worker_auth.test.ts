@@ -16,7 +16,7 @@ import {
   WorkerIdentityStore,
 } from "../src/persistence/index.js";
 import { WorkerAuthService } from "../src/security/worker-auth.js";
-import { WORKSPACE_ID } from "../src/spine/index.js";
+import { SpineService, WORKSPACE_ID } from "../src/spine/index.js";
 import {
   prepareReferenceWorkerDemo,
   REFERENCE_CREDENTIAL_HANDLE,
@@ -25,7 +25,11 @@ import {
   REFERENCE_WORK_ID,
   REFERENCE_WORKER_ID,
 } from "../src/workers/index.js";
-import { principalHeaders, seedPrincipalAtPath } from "./helpers/principals.js";
+import {
+  authenticateOperatorPrincipal,
+  principalHeaders,
+  seedPrincipalAtPath,
+} from "./helpers/principals.js";
 
 let tmpRoot: string;
 let dbPath: string;
@@ -122,7 +126,11 @@ beforeEach(async () => {
   dbPath = join(tmpRoot, "openmao.sqlite3");
   const database = new Database(dbPath);
   database.initialize();
-  prepareReferenceWorkerDemo(database);
+  new SpineService(database).initDemoWorkspace();
+  prepareReferenceWorkerDemo(
+    database,
+    authenticateOperatorPrincipal(database, WORKSPACE_ID, "Reference Demo Operator"),
+  );
   workerToken = new WorkerAuthService(database).mint({
     workspace_id: WORKSPACE_ID,
     worker_id: REFERENCE_WORKER_ID,

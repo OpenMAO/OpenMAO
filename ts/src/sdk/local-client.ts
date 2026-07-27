@@ -17,13 +17,11 @@ import {
   WorkerOutcomeStore,
   WorkItemStore,
 } from "../persistence/index.js";
+import {
+  type AuthenticatedPrincipal,
+  assertAuthenticatedPrincipal,
+} from "../security/authenticated-principal.js";
 import { WorkService } from "../work/index.js";
-
-type ClientContext = {
-  workspace_id: string;
-  actor: string;
-  actor_type?: ExternalActorRef["actor_type"];
-};
 
 type RegisterWorkerInput = {
   id?: string | null;
@@ -53,7 +51,6 @@ type IssueEnvelopeInput = {
   worker_id: string;
   run_id?: string | null;
   task_envelope_id?: string | null;
-  issued_by?: ExternalActorRef | null;
   objective?: string | null;
   context_refs?: string[];
   allowed_capabilities?: string[];
@@ -88,35 +85,56 @@ type RecordIngestionInput = {
   idempotency_key: string;
 };
 
+function issuerRef(principal: AuthenticatedPrincipal): ExternalActorRef {
+  return {
+    actor_type: principal.kind === "human" ? "operator" : principal.kind,
+    actor_id: principal.actor,
+    display_name: null,
+  };
+}
+
+/**
+ * The in-process SDK. There is no identity PARAMETER anywhere on this client:
+ * the acting identity is the authenticated principal handed to the constructor
+ * and nothing else — a caller cannot name the actor it records under, because
+ * the type only exists behind the credential-resolution paths and the
+ * constructor re-checks the brand at runtime. `recorded_by`, the event actor,
+ * and the envelope's `issued_by` all derive from that one principal.
+ */
 export class OpenMaoLocalClient {
   private readonly ingestions: IngestionService;
   private readonly work: WorkService;
+  private readonly workspaceId: string;
+  private readonly actor: string;
 
   constructor(
     private readonly database: Database,
-    private readonly context: ClientContext,
+    private readonly principal: AuthenticatedPrincipal,
   ) {
+    assertAuthenticatedPrincipal(principal);
     this.ingestions = new IngestionService(database);
     this.work = new WorkService(database);
+    this.workspaceId = principal.workspace_id;
+    this.actor = principal.actor;
   }
 
   registerWorker(input: RegisterWorkerInput): WorkerIdentity {
     return this.work.registerWorker({
       ...input,
-      workspace_id: this.context.workspace_id,
-      actor: this.context.actor,
+      workspace_id: this.workspaceId,
+      actor: this.actor,
     });
   }
 
   workers(): WorkerIdentity[] {
-    return new WorkerIdentityStore(this.database).listForWorkspace(this.context.workspace_id);
+    return new WorkerIdentityStore(this.database).listForWorkspace(this.workspaceId);
   }
 
   createWork(input: CreateWorkInput): WorkItem {
     return this.work.createWork({
       ...input,
-      workspace_id: this.context.workspace_id,
-      actor: this.context.actor,
+      workspace_id: this.workspaceId,
+      actor: this.actor,
     });
   }
 
@@ -128,30 +146,27 @@ export class OpenMaoLocalClient {
   }): WorkItem {
     return this.work.assignWork({
       ...input,
-      workspace_id: this.context.workspace_id,
-      actor: this.context.actor,
+      workspace_id: this.workspaceId,
+      actor: this.actor,
     });
   }
 
   workItems(): WorkItem[] {
-    return new WorkItemStore(this.database).listForWorkspace(this.context.workspace_id);
+    return new WorkItemStore(this.database).listForWorkspace(this.workspaceId);
   }
 
   issueEnvelope(input: IssueEnvelopeInput): BoundedWorkEnvelope {
     return this.work.createBoundedEnvelope({
       ...input,
-      workspace_id: this.context.workspace_id,
-      issued_by: input.issued_by ?? {
-        actor_type: "operator",
-        actor_id: this.context.actor,
-        display_name: null,
-      },
+      workspace_id: this.workspaceId,
+      // The issuer is the authenticated principal — never an input field.
+      issued_by: issuerRef(this.principal),
     });
   }
 
   envelopes(workItemId: string): BoundedWorkEnvelope[] {
     return new BoundedWorkEnvelopeStore(this.database).listForWorkItem(
-      this.context.workspace_id,
+      this.workspaceId,
       workItemId,
     );
   }
@@ -159,16 +174,13 @@ export class OpenMaoLocalClient {
   submitOutcome(input: SubmitOutcomeInput): WorkerOutcome {
     return this.work.submitWorkerOutcome({
       ...input,
-      workspace_id: this.context.workspace_id,
-      actor: this.context.actor,
+      workspace_id: this.workspaceId,
+      actor: this.actor,
     });
   }
 
   outcomes(workItemId: string): WorkerOutcome[] {
-    return new WorkerOutcomeStore(this.database).listForWorkItem(
-      this.context.workspace_id,
-      workItemId,
-    );
+    return new WorkerOutcomeStore(this.database).listForWorkItem(this.workspaceId, workItemId);
   }
 
   reviewWork(input: {
@@ -179,37 +191,36 @@ export class OpenMaoLocalClient {
   }): WorkItem {
     return this.work.reviewWork({
       ...input,
-      workspace_id: this.context.workspace_id,
-      actor: this.context.actor,
+      workspace_id: this.workspaceId,
+      actor: this.actor,
     });
   }
 
   recordIngestion(input: RecordIngestionInput): IngestionRecord {
     return this.ingestions.record({
       ...input,
-      workspace_id: this.context.workspace_id,
+      workspace_id: this.workspaceId,
       source: input.source ?? {
         provider: "openmao-sdk",
-        external_id: this.context.actor,
+        external_id: this.actor,
         external_url: null,
       },
       actor: input.actor ?? {
-        // Provenance only: the recording authority is `recorded_by`, and an
-        // SDK process is never an OpenMAO operator, so the default ref can
-        // never claim operator authority.
-        actor_type: this.context.actor_type ?? "system",
-        actor_id: this.context.actor,
+        // Provenance only: the recording authority is `recorded_by`, and the
+        // default ref can never claim OpenMAO operator authority.
+        actor_type: "system",
+        actor_id: this.actor,
         display_name: null,
       },
-      recorded_by: this.context.actor,
+      recorded_by: this.actor,
     });
   }
 
   ingestionRecords(): IngestionRecord[] {
-    return new IngestionRecordStore(this.database).listForWorkspace(this.context.workspace_id);
+    return new IngestionRecordStore(this.database).listForWorkspace(this.workspaceId);
   }
 
   events() {
-    return new EventStore(this.database).listForWorkspace(this.context.workspace_id);
+    return new EventStore(this.database).listForWorkspace(this.workspaceId);
   }
 }

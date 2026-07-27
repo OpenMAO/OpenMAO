@@ -1,5 +1,9 @@
 import { newId, utcNow, WorkspaceSchema } from "../../src/contracts/index.js";
 import { Database, PrincipalStore, WorkspaceStore } from "../../src/persistence/index.js";
+import {
+  type AuthenticatedPrincipal,
+  enrichPrincipalIdentity,
+} from "../../src/security/authenticated-principal.js";
 import { PrincipalAuthService } from "../../src/security/principal-auth.js";
 import { SpineService, WORKSPACE_ID } from "../../src/spine/index.js";
 
@@ -68,4 +72,24 @@ export function seedPrincipalAtPath(
 
 export function principalHeaders(token: string): Record<string, string> {
   return { "x-openmao-principal-token": token };
+}
+
+/**
+ * Mints a real credential for a fresh human principal in `workspaceId` (which
+ * must already exist) and resolves it back through the ordinary credential
+ * path — so tests hold a genuinely AuthenticatedPrincipal, never a hand-built
+ * lookalike.
+ */
+export function authenticateOperatorPrincipal(
+  database: Database,
+  workspaceId: string,
+  displayName: string,
+): AuthenticatedPrincipal {
+  const seeded = createPrincipalWithToken(database, workspaceId, displayName);
+  const identity = new PrincipalAuthService(database).resolve(seeded.token);
+  const principal = identity ? enrichPrincipalIdentity(database, identity) : null;
+  if (!principal) {
+    throw new Error("failed to authenticate the seeded operator principal");
+  }
+  return principal;
 }

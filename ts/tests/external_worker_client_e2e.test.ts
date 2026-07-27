@@ -11,7 +11,7 @@ import { DiagnosisService } from "../src/diagnosis/index.js";
 import { Database, EventStore } from "../src/persistence/index.js";
 import { type CapabilityCallRequest, ExternalWorkerClient } from "../src/sdk/index.js";
 import { WorkerAuthService } from "../src/security/worker-auth.js";
-import { WORKSPACE_ID } from "../src/spine/index.js";
+import { SpineService, WORKSPACE_ID } from "../src/spine/index.js";
 import {
   prepareReferenceWorkerDemo,
   REFERENCE_CREDENTIAL_HANDLE,
@@ -21,6 +21,7 @@ import {
   REFERENCE_WORK_ID,
   REFERENCE_WORKER_ID,
 } from "../src/workers/index.js";
+import { authenticateOperatorPrincipal } from "./helpers/principals.js";
 
 const MOCK_SECRET = "local_mock_secret_do_not_serialize";
 
@@ -62,7 +63,11 @@ beforeEach(async () => {
   dbPath = join(tmpRoot, "openmao.sqlite3");
   const database = new Database(dbPath);
   database.initialize();
-  prepareReferenceWorkerDemo(database);
+  new SpineService(database).initDemoWorkspace();
+  prepareReferenceWorkerDemo(
+    database,
+    authenticateOperatorPrincipal(database, WORKSPACE_ID, "Reference Demo Operator"),
+  );
   workerToken = new WorkerAuthService(database).mint({
     workspace_id: WORKSPACE_ID,
     worker_id: REFERENCE_WORKER_ID,

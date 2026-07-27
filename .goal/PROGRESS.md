@@ -9,8 +9,8 @@ actually been accepted versus attempted.
 | M2 Identity storage | **ACCEPTED** | 2026-07-26 | 428 tests; 2 audit rounds, 13 findings incl. a demonstrated P0 signature forgery |
 | M3 Custody + bootstrap | **ACCEPTED** | 2026-07-27 | 518 tests; 2 audit rounds; P0 confirmed fixed, caller-trust bypass closed by driver |
 | M3a Console extraction | **ACCEPTED** | 2026-07-27 | pure move; output byte-identical at source AND runtime; server.ts 2563 -> 1266 |
-| M4 Atomic cutover | code written, AUDIT PENDING (attempt 1/3) | — | 522 tests green; all 3 surfaces cut over; legacy token path deleted; audit interrupted by API 529 |
-| M5 Signed decisions | not started | — | — |
+| M4 Atomic cutover | **ACCEPTED** | 2026-07-27 | 531 tests; 6 audit findings fixed; spread-forgery closed by driver |
+| M5 Signed decisions | next | — | — |
 | M6 Chain attestations | not started | — | — |
 | M7 Docs + evidence | not started | — | — |
 
@@ -295,3 +295,41 @@ does not get accepted on deterministic checks alone, and on this branch the audi
 green suites did not, every single time.
 
 Next tick retries the audit. It must lead with the carried TOCTOU finding in `attestPrincipalKey`.
+
+### M4 — ACCEPTED (2026-07-27)
+
+`make check` green, **531 tests** (M3a left it at 518), typecheck clean in the same run.
+
+The audit (third attempt; two earlier runs died on transient API 529) returned 3×P1 + 3×P2 and
+rejected. All six were fixed, and the two decisive ones were the same shape this branch keeps
+producing — **a safe path added beside a still-reachable unsafe one**, now for the third time:
+
+- **`work outcome` was unauthenticated worker impersonation.** The command passed no actor at all
+  while every sibling command passed `cliPrincipal().actor`; anyone who could run the CLI could act
+  as any assigned worker. Now it requires a worker token, and `--worker` is demoted to a
+  must-match cross-check against the credential.
+- **The publicly-exported SDK let a caller name the acting identity.** `OpenMaoLocalClient` took an
+  `actor: string` straight into event records. It now takes an `AuthenticatedPrincipal` only the
+  credential path can produce, and `issued_by` was deleted from the envelope input.
+- **TOCTOU between verification and the write.** Verification completed, *then* the transaction
+  began, so a principal disabled or a key revoked in that gap still produced a committed authority
+  record ordered after its own withdrawal. Standing is now re-read as the first statement inside the
+  writing transaction, with tests that interpose a second connection at exactly that point.
+
+Also fixed: demo approvals recorded a hardcoded `"reference_worker_demo"` instead of the
+authenticated operator; the rejected-header fence sat inside `authenticateContext`, so `/health` and
+`/console` accepted the spoof header and returned 200; and `verify-chain` opened the database
+writable, so its constructor's `PRAGMA journal_mode = WAL` could persistently mutate the file it was
+only supposed to read.
+
+**Driver fix, recorded openly:** the executor's unforgeable-identity brand was defeated by **object
+spread**. `[AUTHENTICATED]: true` assigned in an object literal is an *enumerable* own symbol, so
+`{ ...principal, actor: victim }` copies the brand and passes an `in` check — meaning any caller
+holding one valid credential could still record events as any principal. Demonstrated by probe,
+then closed by replacing the property check with an identity-based `WeakSet` of minted principals: a
+spread produces a new object, which can never be a member. Verified both the hand-built and the
+spread forgery are now refused.
+
+The lesson generalises past this branch: **a brand carried as a property is copyable; only object
+identity is not.** Same family as the three fail-open guards already recorded — a check that tests
+for the presence of a marker rather than the provenance of the object is not a check.

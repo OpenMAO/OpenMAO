@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -68,8 +68,10 @@ function enrolPrincipal(input: { kind: "human" | "agent"; devBootstrap?: boolean
   publicKeyBase64Url: string;
 } {
   const material = freshKeyMaterial();
-  const principalId = `principal_${Math.random().toString(36).slice(2).padEnd(24, "x")}`;
-  const keyId = `prinkey_${Math.random().toString(36).slice(2).padEnd(24, "y")}`;
+  // Canonical ids (prefix + 32 hex): the happy-path events cite them in refs,
+  // which EventPayloadSchema validates against the canonical id pattern.
+  const principalId = `principal_${randomBytes(16).toString("hex")}`;
+  const keyId = `prinkey_${randomBytes(16).toString("hex")}`;
   new PrincipalStore(database).create({
     id: principalId,
     workspace_id: WORKSPACE,
@@ -115,6 +117,134 @@ let SUBJECT: ReturnType<typeof enrolPrincipal>;
 beforeEach(() => {
   OPERATOR = enrolPrincipal({ kind: "human" });
   SUBJECT = enrolPrincipal({ kind: "agent" });
+});
+
+describe("authority mutations re-check standing INSIDE the writing transaction", () => {
+  // TOCTOU: the verification read completed, then another connection withdrew
+  // the authority — disabled the principal, revoked the operator key — before
+  // this connection's BEGIN. The in-transaction re-check must fail the write
+  // and roll it back: an authority record can never be ordered after the
+  // administrative withdrawal of that authority. The wrapper interposes the
+  // withdrawal exactly where a second process's commit would land: after the
+  // last pre-transaction read, before the writing transaction starts.
+  function racingDatabase(withdraw: (other: Database) => void): Database {
+    const racing = Object.create(database) as Database;
+    racing.transaction = <T>(body: () => T): T => {
+      const other = new Database(join(dir, "openmao.sqlite3"));
+      try {
+        withdraw(other);
+      } finally {
+        other.close();
+      }
+      // The REAL instance method — the interposed withdrawal lands first,
+      // exactly where a second process's commit would.
+      return database.transaction(body);
+    };
+    return racing;
+  }
+
+  it("an attestation writes nothing when the principal is disabled before BEGIN", async () => {
+    const racing = racingDatabase((other) =>
+      new PrincipalStore(other).setStatus(OPERATOR.principalId, "disabled"),
+    );
+    await expect(
+      attestPrincipalKey({
+        database: racing,
+        workspaceId: WORKSPACE,
+        attester: { principal_id: OPERATOR.principalId, key_id: OPERATOR.keyId },
+        subjectKeyId: SUBJECT.keyId,
+        broker: brokerFor(OPERATOR.pkcs8Base64Url),
+        handle: "signkey_operator",
+        now: NOW,
+      }),
+    ).rejects.toThrow(/attestation refused/);
+    expect(attestationRows()).toBe(0);
+    expect(mutationEvents()).toBe(0);
+  });
+
+  it("an attestation writes nothing when the operator key is revoked before BEGIN", async () => {
+    const racing = racingDatabase((other) => new PrincipalKeyStore(other).revoke(OPERATOR.keyId));
+    await expect(
+      attestPrincipalKey({
+        database: racing,
+        workspaceId: WORKSPACE,
+        attester: { principal_id: OPERATOR.principalId, key_id: OPERATOR.keyId },
+        subjectKeyId: SUBJECT.keyId,
+        broker: brokerFor(OPERATOR.pkcs8Base64Url),
+        handle: "signkey_operator",
+        now: NOW,
+      }),
+    ).rejects.toThrow(/attestation refused/);
+    expect(attestationRows()).toBe(0);
+    expect(mutationEvents()).toBe(0);
+  });
+
+  it("a revocation writes nothing when the principal is disabled before BEGIN", async () => {
+    const racing = racingDatabase((other) =>
+      new PrincipalStore(other).setStatus(OPERATOR.principalId, "disabled"),
+    );
+    await expect(
+      revokePrincipalKey({
+        database: racing,
+        workspaceId: WORKSPACE,
+        revoker: { principal_id: OPERATOR.principalId, key_id: OPERATOR.keyId },
+        keyId: SUBJECT.keyId,
+        reasonCode: "operator_initiated",
+        broker: brokerFor(OPERATOR.pkcs8Base64Url),
+        handle: "signkey_operator",
+        now: NOW,
+      }),
+    ).rejects.toThrow(/revocation refused/);
+    expect(revocationRows()).toBe(0);
+    expect(new PrincipalKeyStore(database).get(SUBJECT.keyId)?.status).toBe("active");
+    expect(mutationEvents()).toBe(0);
+  });
+
+  it("a revocation writes nothing when the operator key is revoked before BEGIN", async () => {
+    const racing = racingDatabase((other) => new PrincipalKeyStore(other).revoke(OPERATOR.keyId));
+    await expect(
+      revokePrincipalKey({
+        database: racing,
+        workspaceId: WORKSPACE,
+        revoker: { principal_id: OPERATOR.principalId, key_id: OPERATOR.keyId },
+        keyId: SUBJECT.keyId,
+        reasonCode: "operator_initiated",
+        broker: brokerFor(OPERATOR.pkcs8Base64Url),
+        handle: "signkey_operator",
+        now: NOW,
+      }),
+    ).rejects.toThrow(/revocation refused/);
+    expect(revocationRows()).toBe(0);
+    expect(new PrincipalKeyStore(database).get(SUBJECT.keyId)?.status).toBe("active");
+    expect(mutationEvents()).toBe(0);
+  });
+
+  it("without the race the same mutations still commit", async () => {
+    const attestation = await attestPrincipalKey({
+      database,
+      workspaceId: WORKSPACE,
+      attester: { principal_id: OPERATOR.principalId, key_id: OPERATOR.keyId },
+      subjectKeyId: SUBJECT.keyId,
+      broker: brokerFor(OPERATOR.pkcs8Base64Url),
+      handle: "signkey_operator",
+      now: NOW,
+    });
+    expect(attestation.subject_key_id).toBe(SUBJECT.keyId);
+    expect(attestationRows()).toBe(1);
+    const revocation = await revokePrincipalKey({
+      database,
+      workspaceId: WORKSPACE,
+      revoker: { principal_id: OPERATOR.principalId, key_id: OPERATOR.keyId },
+      keyId: SUBJECT.keyId,
+      reasonCode: "operator_initiated",
+      broker: brokerFor(OPERATOR.pkcs8Base64Url),
+      handle: "signkey_operator",
+      now: NOW,
+    });
+    expect(revocation.key_id).toBe(SUBJECT.keyId);
+    expect(revocationRows()).toBe(1);
+    expect(mutationEvents()).toBe(2);
+  });
 });
 
 describe("attestPrincipalKey refuses a signer it cannot substantiate", () => {
