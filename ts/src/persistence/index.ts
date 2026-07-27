@@ -23,6 +23,12 @@ export {
   ToolConflictError,
   ToolStore,
 } from "./capabilities.js";
+export {
+  type ChainHeadAttestation,
+  ChainHeadAttestationConflictError,
+  ChainHeadAttestationStore,
+  chainHeadAttestationTableExists,
+} from "./chain-attestations.js";
 export { type Checkpoint, CheckpointSchema, CheckpointStore } from "./checkpoints.js";
 export { Database } from "./database.js";
 export { NodeEffectStore } from "./effects.js";

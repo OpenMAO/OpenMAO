@@ -43,6 +43,7 @@ import {
   authenticateFromProfile,
   resolveCliPrincipal,
 } from "./security/authenticated-principal.js";
+import { attestChainHead } from "./security/chain-attestation.js";
 import { resolveCustody, workspaceCustodyDir } from "./security/key-custody.js";
 import {
   attestPrincipalKey,
@@ -331,12 +332,33 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
 
     if (command === "help" || command === "--help" || command === "-h") {
       write(
-        "openmao demo | demo-approve | demo-deny | init | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert|withdraw | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | autonomy narrow ratify --rejections <n> --violations <m> --window <seconds> --cooldown <seconds> | autonomy narrow scan|list | autonomy narrow lift <id> --note <text> | memory search|list [--include-untrusted]|attest <entry_id>|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | verify-chain | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | console | principals init|mint-token|attest --subject-key <key_id>|revoke-key <key_id> [--reason <code>]",
+        "openmao demo | demo-approve | demo-deny | init | attest | run demo|resume | worker demo|demo-approve | work list|show|create|assign|status|envelope|outcome|review | workers list|register | ingest list|record | learning scan|proposals|show|apply|revert|withdraw | cos init|tick|run|inbox|read <id> [--unread] [--at ts] [--beats n] [--interval s] [--daemon] | cadence list|add --kind <kind> --interval <seconds> | org pause|resume|control | autonomy narrow ratify --rejections <n> --violations <m> --window <seconds> --cooldown <seconds> | autonomy narrow scan|list | autonomy narrow lift <id> --note <text> | memory search|list [--include-untrusted]|attest <entry_id>|corroborate | approvals list|approve|reject <id> [--workspace workspace_id] | events [run_id]|--workspace [workspace_id] | verify-chain | world [--run run_id] [--workspace workspace_id] | diagnose <failure_event_id> | console | principals init|mint-token|attest --subject-key <key_id>|revoke-key <key_id> [--reason <code>]",
       );
       return 0;
     }
     if (command === "init") {
       printJson(write, { workspace_id: spine.initDemoWorkspace() });
+      return 0;
+    }
+    if (command === "attest") {
+      // Signed chain-head attestation (M6): pins the current event-chain head
+      // (sequence, hash, count) under the operator key, so a later
+      // `verify-chain` can detect truncation of the newest events — relative
+      // to an attestation that survives or was exported. Authenticated like
+      // every other authority action: the signer comes from the operator
+      // profile and its custody, never from a flag.
+      const result = attestChainHead({
+        database,
+        workspaceId: selectedWorkspace,
+        signer: cliSigner(),
+      });
+      printJson(write, {
+        ...result.attestation,
+        created: result.created,
+        note: result.created
+          ? "Attestation recorded. It detects truncation only relative to an attestation that survives or was exported — an attacker who can delete events in this file can delete attestation rows too."
+          : "Head already attested; nothing was signed or written.",
+      });
       return 0;
     }
     if (command === "demo" || (command === "run" && subcommand === "demo")) {

@@ -11,7 +11,7 @@ actually been accepted versus attempted.
 | M3a Console extraction | **ACCEPTED** | 2026-07-27 | pure move; output byte-identical at source AND runtime; server.ts 2563 -> 1266 |
 | M4 Atomic cutover | **ACCEPTED** | 2026-07-27 | 531 tests; 6 audit findings fixed; spread-forgery closed by driver |
 | M5 Signed decisions | **ACCEPTED** | 2026-07-27 | 551 tests; 2 P0s fixed; null-actor escape deleted, reject() guarded |
-| M6 Chain attestations | next | — | — |
+| M6 Chain attestations | code written, 1 finding open (attempt 1/3) | — | 568 tests; verify path trusts a row, not a signature |
 | M7 Docs + evidence | not started | — | — |
 
 ## Failure signatures
@@ -378,3 +378,41 @@ under-test; a status column stood in for a validity window. M7 should state this
 Credit where due: the executor's two self-disclosed deviations both came back clean under audit — the
 post-write standing check is sound for this synchronous single-connection SQLite implementation, and
 the `?? at` fallback was unreachable. The defects were in what it did not flag.
+
+### M6 — code complete, one finding open (2026-07-27)
+
+`make check` green, **568 tests** (M5 left it at 551), typecheck clean in the same run,
+`SCHEMA_VERSION` still 8. Committed durable-but-not-accepted.
+
+Answers a follow-up the repo wrote for itself. `ts/src/persistence/events.ts` said detecting
+truncation of the newest events "requires anchoring the head hash in storage not reconstructed from
+the events themselves" — because `verifyChain` recomputes hashes from the events it can see, so
+deleting the newest N leaves a chain that is perfectly self-consistent and silently shorter.
+
+New `chain_head_attestations` table and `ChainHeadAttestationStore`, deliberately named to avoid the
+pre-existing `checkpoints.ts` (run-resumption state — a different concept with a different lifecycle).
+The signed body is bound entirely to stored state, including `attested_at`, which is the **head
+event's stored timestamp**, not the wall clock. `verifyChain` gains two break classes: a surviving
+head behind the attested head, and an attested-position hash mismatch — the latter catching an
+attacker who rewrites history *and* recomputes every hash, which the internal walk alone cannot see.
+
+The durability guardrail landed too: a file-backed database is built, chained, attested, closed,
+re-opened and re-parsed through current schemas. It is the only test that would catch a defaulted
+field added to the event contracts silently invalidating every already-chained event — the hazard
+this entire branch adds zero contract fields to avoid.
+
+**Open finding — the fifth instance of the branch's recurring pattern.** The truncation arm verifies
+a *row*, not a *signature*: it compares stored columns, and `verifyObject` appears **zero** times in
+the verification path. So the anchor's authority rests on a row asserting it was attested rather than
+proof it was signed by an enrolled key. Anyone who can write the database can insert a fabricated
+attestation pointing at a rewritten head and have it reported as a satisfied anchor.
+
+That is decisive rather than cosmetic, because the whole value of an anchor is that it can be
+**exported and re-presented** — and this is the artifact ADR-0008 names as acceptable gate evidence.
+Evidence that cannot be verified is not evidence. A marker (`signature_id` column) standing in for
+provenance (a verified envelope) is exactly the shape that produced the four prior decisive defects.
+
+Credit: the executor's pushback was right — the brief's "head already attested → no-op" rule is
+literally unimplementable, because the mandated audit event advances the head after every
+attestation, so a naive same-head check can never fire. It implemented the semantically correct
+version instead.

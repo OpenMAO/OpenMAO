@@ -19,3 +19,4 @@
 {"ts":"2026-07-27T09:44:39Z","run_id":"tick15-20260727T083424Z","step":"accept","milestone":"M4","detail":"ACCEPTED: 531 tests; 6 audit findings fixed (2 unauthenticated identity paths + TOCTOU); driver closed a spread-forgery of the identity brand via WeakSet"}
 {"ts":"2026-07-27T09:45:30Z","run_id":"tick17-20260727T094530Z","step":"reserve","milestone":"M5","detail":"tick 17/24; M5 attempt 1/3; signed decisions + delete the null-actor escape"}
 {"ts":"2026-07-27T13:00:52Z","run_id":"tick17-20260727T094530Z","step":"accept","milestone":"M5","detail":"ACCEPTED: 551 tests; 2 P0s fixed (mutable minted identity defeating SoD via stateful getter; valid_from never enforced); sign-anything primitive un-exported and decision type bound into signed bytes"}
+{"ts":"2026-07-27T13:01:55Z","run_id":"tick19-20260727T130155Z","step":"reserve","milestone":"M6","detail":"tick 19/24; M6 attempt 1/3; chain attestations + durability test"}

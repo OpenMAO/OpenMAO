@@ -658,6 +658,53 @@ ON governance_signatures(workspace_id, object_type, object_id, signer_key_id);
 CREATE INDEX IF NOT EXISTS idx_governance_signatures_object
 ON governance_signatures(workspace_id, object_type, object_id);
 
+-- Signed chain-head attestations (M6): the anchor outside the reconstructed event log
+-- that makes truncation of the newest events detectable (events.ts names the gap). One
+-- row per attested (workspace, head sequence), self-chaining via previous_attestation_id.
+-- Distinct from the checkpoints table (run-resumption state) in name, shape, and lifecycle. Like
+-- worker_credentials this is a fresh table in the unconditional DDL path — no data
+-- migration, no SCHEMA_VERSION bump. HONEST SCOPE: an attestation in the same file as the
+-- events detects truncation only relative to an attestation that survives or was exported;
+-- an attacker with direct file write access can delete attestation rows too.
+CREATE TABLE IF NOT EXISTS chain_head_attestations (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  head_sequence INTEGER NOT NULL,
+  head_hash TEXT NOT NULL,
+  event_count INTEGER NOT NULL,
+  previous_attestation_id TEXT,
+  signer_key_id TEXT NOT NULL,
+  signer_principal_id TEXT NOT NULL,
+  signature_id TEXT NOT NULL,
+  attested_at TEXT NOT NULL,
+  UNIQUE (workspace_id, head_sequence),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+  FOREIGN KEY (workspace_id, signer_key_id) REFERENCES principal_keys(workspace_id, id),
+  FOREIGN KEY (workspace_id, signer_principal_id) REFERENCES principals(workspace_id, id),
+  FOREIGN KEY (signature_id) REFERENCES governance_signatures(id),
+  FOREIGN KEY (previous_attestation_id) REFERENCES chain_head_attestations(id)
+);
+
+-- Composite-FK target (worker_identities precedent): lets the self-chain reference be
+-- scoped to the workspace in code, with a unique lookup per (workspace, id).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chain_head_attestations_workspace_id
+ON chain_head_attestations(workspace_id, id);
+
+-- Append-only, in the events-table style: the code path never updates or deletes an
+-- attestation. (Direct file writes bypass triggers by definition — see the honest-scope
+-- note above.)
+CREATE TRIGGER IF NOT EXISTS chain_head_attestations_no_update
+BEFORE UPDATE ON chain_head_attestations
+BEGIN
+  SELECT RAISE(ABORT, 'chain head attestations are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS chain_head_attestations_no_delete
+BEFORE DELETE ON chain_head_attestations
+BEGIN
+  SELECT RAISE(ABORT, 'chain head attestations are append-only');
+END;
+
 INSERT OR IGNORE INTO schema_version (version, applied_at)
 VALUES (${SCHEMA_VERSION}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 

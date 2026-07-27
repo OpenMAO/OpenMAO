@@ -7,6 +7,7 @@ import {
   newId,
   utcNow,
 } from "../contracts/index.js";
+import { type ChainHeadAttestation, ChainHeadAttestationStore } from "./chain-attestations.js";
 import type { Database } from "./database.js";
 import { dumpJson, jsonEqual } from "./serialization.js";
 
@@ -157,12 +158,38 @@ export class EventStore {
    * Detects payload tampering (hash mismatch), insertion or reordering (prev_hash
    * mismatch), and an unchained event (missing hash), returning the first break.
    *
-   * This proves the chain is internally consistent. Detecting truncation of the
-   * most recent events additionally requires anchoring the head hash in storage
-   * not reconstructed from the events themselves — a natural follow-up.
+   * The internal walk alone proves only that the chain is consistent with itself:
+   * recomputing hashes from the events it can see cannot notice events it CANNOT
+   * see. The follow-up named here previously is M6: after the internal walk
+   * passes, the head is compared against the latest surviving signed chain-head
+   * attestation (chain_head_attestations), which pins (head_sequence, head_hash,
+   * event_count) OUTSIDE the reconstructed log. Two further break classes:
+   *
+   *   - truncation: the surviving head sequence is BEHIND the attested head —
+   *     the newest events were deleted, leaving a shorter, self-consistent chain;
+   *   - attested-head mismatch: the event AT the attested sequence carries a
+   *     different hash than the attestation pinned — a sophisticated rewrite
+   *     that recomputed every successor hash still fails here, because the
+   *     attested value is not derivable from the rewritten events.
+   *
+   * HONEST SCOPE: this detects truncation/rewrite only relative to an
+   * attestation that SURVIVES or was exported. An attacker with direct write
+   * access to the database file can delete the attestation rows beside the
+   * events (the append-only triggers guard the code path, not the file), and a
+   * workspace with no attestation gets the pre-M6 semantics — internally
+   * consistent truncation still verifies ok. Saying more would overclaim.
    */
   verifyChain(workspaceId: string): EventChainVerification {
+    // The attestation is read BEFORE the walk so the walk can also watch the
+    // attested position itself: the event AT the attested sequence must
+    // survive with the attested hash, even when the chain has advanced past it.
+    const attestation = new ChainHeadAttestationStore(this.database).latestForWorkspace(
+      workspaceId,
+    );
     let previousHash = GENESIS_HASH;
+    let head: Event | null = null;
+    let eventCount = 0;
+    let eventAtAttestedSequence: Event | null = null;
     for (const event of this.listForWorkspace(workspaceId)) {
       if (event.hash === null || event.prev_hash === null) {
         return { ok: false, broken_at: event.id, reason: "event is not hash-chained" };
@@ -182,6 +209,70 @@ export class EventStore {
         };
       }
       previousHash = event.hash;
+      head = event;
+      eventCount += 1;
+      if (attestation && event.seq === attestation.head_sequence) {
+        eventAtAttestedSequence = event;
+      }
+    }
+    return this.verifyHeadAgainstAttestation(
+      attestation,
+      head,
+      eventCount,
+      eventAtAttestedSequence,
+    );
+  }
+
+  /**
+   * The truncation arm: compares the internally-consistent chain against the
+   * latest SURVIVING attestation. Read-only and silent by design when no
+   * attestation exists (a legacy database, or one never attested, verifies
+   * exactly as before M6) — the arm runs only after the internal walk passes,
+   * so it can ADD a break class, never mask one.
+   */
+  private verifyHeadAgainstAttestation(
+    attestation: ChainHeadAttestation | null,
+    head: Event | null,
+    eventCount: number,
+    eventAtAttestedSequence: Event | null,
+  ): EventChainVerification {
+    if (!attestation) {
+      return { ok: true };
+    }
+    const headSequence = head?.seq ?? 0;
+    if (headSequence < attestation.head_sequence) {
+      return {
+        ok: false,
+        broken_at: head?.id ?? attestation.id,
+        reason:
+          `truncation: chain head seq ${headSequence} is behind the latest surviving ` +
+          `attestation ${attestation.id} (attested head seq ${attestation.head_sequence}, ` +
+          `${attestation.event_count} events attested, ${eventCount} survive)`,
+      };
+    }
+    if (!eventAtAttestedSequence) {
+      return {
+        ok: false,
+        broken_at: attestation.id,
+        reason:
+          `truncation: no event survives at the attested head seq ${attestation.head_sequence} ` +
+          `pinned by attestation ${attestation.id}, though the chain head is seq ${headSequence} ` +
+          `— the attested position was deleted or renumbered and the chain re-chained`,
+      };
+    }
+    if (
+      eventAtAttestedSequence.hash !== attestation.head_hash ||
+      (headSequence === attestation.head_sequence && eventCount !== attestation.event_count)
+    ) {
+      return {
+        ok: false,
+        broken_at: eventAtAttestedSequence.id,
+        reason:
+          `attested head mismatch: the event at the attested head seq ${attestation.head_sequence} ` +
+          `does not match attestation ${attestation.id} (attested hash ${attestation.head_hash}, ` +
+          `${attestation.event_count} events attested, ${eventCount} at that head now) — the ` +
+          `chain was rewritten and re-chained after attestation`,
+      };
     }
     return { ok: true };
   }
