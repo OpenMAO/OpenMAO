@@ -8,8 +8,8 @@ actually been accepted versus attempted.
 | M1 Crypto core | **ACCEPTED** | 2026-07-26 | 378 tests (baseline 329); 2 audit rounds, 8 findings fixed; driver fixed a quadratic-scan regression |
 | M2 Identity storage | **ACCEPTED** | 2026-07-26 | 428 tests; 2 audit rounds, 13 findings incl. a demonstrated P0 signature forgery |
 | M3 Custody + bootstrap | **ACCEPTED** | 2026-07-27 | 518 tests; 2 audit rounds; P0 confirmed fixed, caller-trust bypass closed by driver |
-| M3a Console extraction | next | — | — |
-| M4 Atomic cutover | not started | — | — |
+| M3a Console extraction | **ACCEPTED** | 2026-07-27 | pure move; output byte-identical at source AND runtime; server.ts 2563 -> 1266 |
+| M4 Atomic cutover | next | — | — |
 | M5 Signed decisions | not started | — | — |
 | M6 Chain attestations | not started | — | — |
 | M7 Docs + evidence | not started | — | — |
@@ -223,3 +223,29 @@ Residual, recorded rather than fixed (deferred to M7 documentation or a follow-u
 `registrySize === 0` early return remains in `assertCustodyMatchesRegistry` after the foreign-key
 check; and four hardening findings from the second audit (failure paths deleting pre-existing
 artefacts, symlinked custody dir at creation, profile unchecked at use time, read/check TOCTOU).
+
+### M3a — ACCEPTED (2026-07-27)
+
+`make check` green, 518 tests, typecheck clean in the same run. `ts/src/api/server.ts` drops from
+**2,563 to 1,266 lines**; the console template moves to `ts/src/api/console.ts` (1,318 lines).
+
+Low risk tier, so deterministic verification only — no cross-family audit, per the verifier contract.
+But "pure move" is a claim that deserves evidence, and it got some: the rendered `/console` HTML was
+captured over HTTP from the old and new code and is **byte-identical** (86,107 bytes, sha256
+`3c45e26…73cbb4`), and the template source itself is identical (`85ee8c5…7fd4bf0`). Both were
+reproduced independently rather than taken on report.
+
+The six interpolated constants (`TOKEN_HEADER`, `ACTOR_HEADER`, `CONSOLE_ACTOR`, `WORKSPACE_ID`,
+`RUN_ID`, `COORDINATOR_AGENT_ID`) cross as a typed `ConsoleConfig` parameter rather than being
+duplicated or moved — deliberately, because moving them would have widened the diff into the
+auth-adjacent code M4 owns, and duplicating a header name is exactly the kind of drift that becomes a
+real bug.
+
+**Why this wave existed at all:** M4 rewrites the authentication boundary *and* the console's request
+headers. With 1,300 lines of template inline, that diff would have been unreviewable and would have
+conflicted badly. Note for M4: the header set now lives in two places that TypeScript keeps in sync —
+the `ConsoleConfig` type and the call-site literal — so changing it is two edits, not one, but the
+build fails if they diverge.
+
+Also cleaned: a gitignored `.openmao/` runtime directory accumulated during execution, which was
+making `make demo-approve` fail on stale state. Removed; not a code issue.
