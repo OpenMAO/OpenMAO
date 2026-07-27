@@ -6,7 +6,7 @@ OpenMAO is early-stage and local-first. The default demo must not require extern
 
 Report suspected vulnerabilities through GitHub private vulnerability reporting:
 
-<https://github.com/aeonbilal/OpenMAO/security/advisories/new>
+<https://github.com/OpenMAO/OpenMAO/security/advisories/new>
 
 Do not disclose suspected vulnerabilities in public issues, pull requests, discussions, screenshots, or logs.
 
