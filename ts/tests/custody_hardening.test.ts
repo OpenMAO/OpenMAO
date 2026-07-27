@@ -39,6 +39,7 @@ import {
   buildProtectedHeader,
   encodeSegment,
   loadVerificationKeys,
+  mintVerificationKeyForTest,
   payloadBytesForBody,
   signObject,
   verifyObject,
@@ -396,7 +397,7 @@ describe("registry-backed verification key loader", () => {
     // it is ignored; only the registry decides, and the registry says
     // dev-bootstrap. The trust label cannot be made "standard" by any input.
     const smuggledKeys = [
-      {
+      mintVerificationKeyForTest({
         keyId: result.key_id,
         publicKeyBase64Url: result.public_key,
         ownerPrincipalId: result.principal_id,
@@ -405,7 +406,7 @@ describe("registry-backed verification key loader", () => {
         validUntil: null,
         conditions: [],
         dev_bootstrap: false,
-      },
+      }),
     ];
     const verdict = verifyObject({
       database,
@@ -435,7 +436,7 @@ describe("registry-backed verification key loader", () => {
       pkcs8Base64Url: stranger.pkcs8Base64Url,
     });
     const crafted = [
-      {
+      mintVerificationKeyForTest({
         keyId: "prinkey_stranger",
         publicKeyBase64Url: stranger.publicKeyBase64Url,
         ownerPrincipalId: "principal_stranger",
@@ -444,7 +445,7 @@ describe("registry-backed verification key loader", () => {
         validUntil: null,
         conditions: [],
         dev_bootstrap: false,
-      },
+      }),
     ];
     const verdict = verifyObject({
       database,

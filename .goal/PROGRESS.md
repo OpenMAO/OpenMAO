@@ -7,8 +7,8 @@ actually been accepted versus attempted.
 |---|---|---|---|
 | M1 Crypto core | **ACCEPTED** | 2026-07-26 | 378 tests (baseline 329); 2 audit rounds, 8 findings fixed; driver fixed a quadratic-scan regression |
 | M2 Identity storage | **ACCEPTED** | 2026-07-26 | 428 tests; 2 audit rounds, 13 findings incl. a demonstrated P0 signature forgery |
-| M3 Custody + bootstrap | code written, AUDIT REJECTED x2 (attempt 2/3) | — | 504 tests green; P0 + 4 P1 outstanding; one attempt left |
-| M3a Console extraction | not started | — | — |
+| M3 Custody + bootstrap | **ACCEPTED** | 2026-07-27 | 518 tests; 2 audit rounds; P0 confirmed fixed, caller-trust bypass closed by driver |
+| M3a Console extraction | next | — | — |
 | M4 Atomic cutover | not started | — | — |
 | M5 Signed decisions | not started | — | — |
 | M6 Chain attestations | not started | — | — |
@@ -184,3 +184,42 @@ the same run. Verify the gate end-to-end rather than trusting a summary line.
 one*. A safe alternative beside a reachable unsafe path is not a fix. The final attempt must make the
 unsafe path unexpressible — delete it, make it private, or change the signature so the dangerous
 combination cannot be constructed.
+
+### M3 — ACCEPTED (2026-07-27)
+
+`make check` green, **518 tests** (M2 left it at 428), typecheck clean in the same run.
+
+Delivers custody tiers with enforced 0600/0700 modes, the root-of-trust ceremony with evaluated
+predicates, workspace-namespaced custody, atomic temp+rename writes, operator profile token custody
+across invocations, `principal-authority` mint/attest/revoke with events, and the
+`AuthenticatedPrincipal` abstraction with the CLI's 13 actor sites routed through it — behaviour
+deliberately unchanged, because the boundary cutover is M4.
+
+**Two findings from the final round are worth keeping, because both are about process rather than
+code:**
+
+1. **An audit went stale under its own subject.** The second audit was written against the
+   uncommitted tree, and by the time its findings were acted on, two of the three — the P0 on forged
+   signers and the cross-workspace bypass — were already fixed in what got committed. Verified
+   directly: `00e902b` resolves the operator from stored rows and verifies the produced signature
+   before writing, and `input.attester.kind` appears nowhere. The cited line numbers pointed at
+   unrelated code. **Re-verify a finding against the current tree before spending an iteration on
+   it** — a third of the last attempt was spent on already-closed holes.
+
+2. **The remaining hole was fail-open, and the executor's own fix reproduced the pattern.** The
+   honesty valve was closed with a runtime brand so a hand-built key cannot verify — good. But the
+   test-only mint that stamps the brand was guarded by *absence of production signals*, so on any
+   machine with `NODE_ENV` unset it minted freely and a caller could still claim `standard` trust for
+   a dev-bootstrapped key. Reproduced by probe. Fixed by the driver, inverting the guard to require
+   an affirmative test-runner signal — refuse unless under test, rather than allow unless production.
+
+That inversion is the same correction this project has now had to make repeatedly: status parsing
+that failed open, a scrubber that failed open on prefixes, and now a trust seam that failed open on
+an unset environment variable. Worth stating as a standing rule in M7's documentation: **a security
+gate keyed on the absence of a signal is not a gate.**
+
+Residual, recorded rather than fixed (deferred to M7 documentation or a follow-up):
+`verifyObject` still has no production caller — the boundary that will call it is M4; a
+`registrySize === 0` early return remains in `assertCustodyMatchesRegistry` after the foreign-key
+check; and four hardening findings from the second audit (failure paths deleting pre-existing
+artefacts, symlinked custody dir at creation, profile unchecked at use time, read/check TOCTOU).

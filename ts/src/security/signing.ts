@@ -8,6 +8,7 @@ import {
 import type { Database } from "../persistence/index.js";
 import { PrincipalKeyStore, PrincipalStore } from "../persistence/index.js";
 import { dumpJson } from "../persistence/serialization.js";
+import { productionSignals } from "./key-custody.js";
 
 /**
  * Ed25519 signing for governance records, using the RFC 7515 detached-JWS
@@ -179,6 +180,16 @@ export function signObject(input: {
  */
 export type EnrolmentCondition = { kind: string } & Record<string, unknown>;
 
+/**
+ * The runtime brand marker. A module-private unique symbol: it is not
+ * exported, so code outside this module cannot reference the property key to
+ * STAMP it, and the verifier REFUSES any key that lacks it. This is what makes
+ * the caller-supplied-keys path unexpressible at runtime, not merely by
+ * convention — only loadVerificationKeys and the guarded test mint (both in
+ * this module) can produce a key the verifier will trust.
+ */
+const VERIFICATION_KEY_BRAND: unique symbol = Symbol("openmao.verification_key_brand");
+
 export type VerificationKey = {
   keyId: string;
   /** Raw 32-byte Ed25519 public key, base64url (RFC 8037 OKP `x`). */
@@ -198,7 +209,49 @@ export type VerificationKey = {
    * caller cannot choose the trust a signature reports by omitting a field.
    */
   dev_bootstrap: boolean;
+  /** Runtime brand; present only on keys minted inside this module. */
+  readonly [VERIFICATION_KEY_BRAND]?: true;
 };
+
+/** Stamps the brand. Module-private: only the loader and the test mint call it. */
+function brandVerificationKey(
+  key: Omit<VerificationKey, typeof VERIFICATION_KEY_BRAND>,
+): VerificationKey {
+  return { ...key, [VERIFICATION_KEY_BRAND]: true } as VerificationKey;
+}
+
+/**
+ * TEST-ONLY MINT — constructs a branded VerificationKey for the white-box
+ * refusal-vector suites (ts/tests/signing.test.ts, principal_stores.test.ts),
+ * which must inject hand-built keys to exercise the verifier's refusal order.
+ * It HARD-REFUSES under any production signal, so this path is unreachable in
+ * production. Production verification (verifyObject) never touches this: it
+ * loads keys from the registry and stamps them itself. If you are reaching
+ * for this outside a test file, stop.
+ */
+export function mintVerificationKeyForTest(
+  key: Omit<VerificationKey, typeof VERIFICATION_KEY_BRAND>,
+): VerificationKey {
+  // Fail closed: require an affirmative test-runner signal rather than merely the
+  // absence of a production one. Gating on `productionSignals` alone was fail-open —
+  // on any machine with NODE_ENV unset (a developer laptop, a plain `node -e`, an
+  // embedding consumer) this minted freely, so a caller could supply `dev_bootstrap:
+  // false` for a dev-bootstrapped key and read back `trust: "standard"`. That is the
+  // caller-chosen-trust hole this brand exists to close, one level up.
+  const underTestRunner = process.env.VITEST !== undefined || process.env.NODE_ENV === "test";
+  if (!underTestRunner) {
+    throw new Error(
+      "mintVerificationKeyForTest is test-only: no test runner detected (expected VITEST or NODE_ENV=test)",
+    );
+  }
+  const signals = productionSignals(process.env);
+  if (signals.length > 0) {
+    throw new Error(
+      `mintVerificationKeyForTest is test-only and refuses to operate in production (${signals.join(", ")})`,
+    );
+  }
+  return brandVerificationKey(key);
+}
 
 export type VerifyFailureReason =
   | "malformed_envelope"
@@ -351,6 +404,11 @@ function verifyObjectInner(input: {
   }
   const key = input.keys.find((candidate) => candidate.keyId === headerKeyId);
   if (!key) {
+    return fail("unknown_key", headerKeyId);
+  }
+  // Fail-closed: a key that was not minted inside this module is never
+  // trusted, even if a caller smuggled one in through the test seam or a cast.
+  if ((key as VerificationKey)[VERIFICATION_KEY_BRAND] !== true) {
     return fail("unknown_key", headerKeyId);
   }
 
@@ -528,19 +586,21 @@ export function loadVerificationKeys(database: Database, workspaceId: string): V
   const loaded: VerificationKey[] = [];
   for (const principal of principals.listForWorkspace(workspaceId)) {
     for (const key of keyStore.listForPrincipal(workspaceId, principal.id)) {
-      loaded.push({
-        keyId: key.id,
-        publicKeyBase64Url: key.public_key,
-        ownerPrincipalId: principal.id,
-        enrolled: true,
-        // Standing is derived from BOTH stored rows: a key row that still says
-        // "active" confers no authority when its principal is disabled, so the
-        // verifier sees such a key as revoked — never as active.
-        status: principal.status === "active" ? key.status : "revoked",
-        validUntil: key.valid_until,
-        conditions: [],
-        dev_bootstrap: principal.dev_bootstrap,
-      });
+      loaded.push(
+        brandVerificationKey({
+          keyId: key.id,
+          publicKeyBase64Url: key.public_key,
+          ownerPrincipalId: principal.id,
+          enrolled: true,
+          // Standing is derived from BOTH stored rows: a key row that still says
+          // "active" confers no authority when its principal is disabled, so the
+          // verifier sees such a key as revoked — never as active.
+          status: principal.status === "active" ? key.status : "revoked",
+          validUntil: key.valid_until,
+          conditions: [],
+          dev_bootstrap: principal.dev_bootstrap,
+        }),
+      );
     }
   }
   return loaded;

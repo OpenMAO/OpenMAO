@@ -13,6 +13,7 @@ import {
   buildSigningInput,
   classForMediaType,
   mediaTypeForClass,
+  mintVerificationKeyForTest,
   SIGNED_OBJECT_MEDIA_TYPES,
   type SignedEnvelopeParts,
   type SignedObjectClass,
@@ -62,7 +63,7 @@ function decisionBody(): Record<string, unknown> {
 }
 
 function verificationKey(overrides: Partial<VerificationKey> = {}): VerificationKey {
-  return {
+  return mintVerificationKeyForTest({
     keyId: "key_a",
     publicKeyBase64Url: keyA.publicKeyBase64Url,
     ownerPrincipalId: PRINCIPAL_A,
@@ -72,7 +73,7 @@ function verificationKey(overrides: Partial<VerificationKey> = {}): Verification
     conditions: [],
     dev_bootstrap: false,
     ...overrides,
-  };
+  });
 }
 
 function verificationKeyB(): VerificationKey {

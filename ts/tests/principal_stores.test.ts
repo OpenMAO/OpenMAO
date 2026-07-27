@@ -23,6 +23,7 @@ import { dumpJson } from "../src/persistence/serialization.js";
 import {
   buildProtectedHeader,
   encodeSegment,
+  mintVerificationKeyForTest,
   payloadBytesForBody,
   verifyObjectWithKeys,
 } from "../src/security/signing.js";
@@ -468,7 +469,7 @@ describe("Ed25519 key enrolment boundary", () => {
         signatureSegment: encodeSegment(forgedSignature),
       },
       keys: [
-        {
+        mintVerificationKeyForTest({
           keyId: legitimate.id,
           publicKeyBase64Url: legitimate.public_key,
           ownerPrincipalId: principal.id,
@@ -477,7 +478,7 @@ describe("Ed25519 key enrolment boundary", () => {
           validUntil: null,
           conditions: [],
           dev_bootstrap: false,
-        },
+        }),
       ],
       now: NOW,
     });
