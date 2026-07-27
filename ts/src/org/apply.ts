@@ -9,6 +9,14 @@ import {
   utcNow,
 } from "../contracts/index.js";
 import {
+  DECISION_OBJECT_TYPES,
+  type DecisionSigner,
+  decisionSignatureRef,
+  signOrgChangeApply,
+  signOrgChangeRevert,
+  snapshotPrincipalIdentity,
+} from "../governance/decision-signing.js";
+import {
   type Database,
   EventStore,
   MemoryEntryStore,
@@ -62,8 +70,8 @@ export type ChangeApplier = {
   revertTarget(ctx: ApplierContext, target: OrgChangeTargetState): void;
 };
 
-type ApplyInput = { workspace_id: string; actor: string; at?: string | null };
-type RevertInput = { workspace_id: string; actor: string; at?: string | null };
+type ApplyInput = { workspace_id: string; signer: DecisionSigner; at?: string | null };
+type RevertInput = { workspace_id: string; signer: DecisionSigner; at?: string | null };
 
 export class OrgChangeApplyService {
   private readonly events: EventStore;
@@ -105,11 +113,12 @@ export class OrgChangeApplyService {
   /**
    * The shared apply guardrails — enforced for BOTH the real apply path and the legacy marker
    * path, so a paused / unevidenced / self-applied proposal can never advance to `applied` by any
-   * route. Kept separate so `OrgChangeService.markApplied` can reuse it.
+   * route. Kept separate so `OrgChangeService.markApplied` can reuse it. Proposer/applier
+   * separation compares STABLE PRINCIPAL IDS, never key ids.
    */
   assertApplyAllowed(
     proposal: OrgChangeProposal,
-    input: { workspace_id: string; actor: string },
+    input: { workspace_id: string; principal_id: string },
   ): void {
     if (this.control.isApplyPaused(input.workspace_id)) {
       throw new OrgChangeApplyPausedError(`apply is paused for workspace ${input.workspace_id}`);
@@ -117,8 +126,10 @@ export class OrgChangeApplyService {
     if (proposal.evidence.length === 0) {
       throw new EvidenceRequiredError(`proposal ${proposal.id} cannot be applied without evidence`);
     }
-    if (proposal.proposed_by === input.actor) {
-      throw new ProposerApplierSeparationError(`proposer and applier must differ: ${input.actor}`);
+    if (proposal.proposed_by === input.principal_id) {
+      throw new ProposerApplierSeparationError(
+        `proposer and applier must differ: ${input.principal_id}`,
+      );
     }
   }
 
@@ -135,6 +146,9 @@ export class OrgChangeApplyService {
    */
   apply(proposalId: string, input: ApplyInput): OrgChangeApplication {
     return this.database.transaction(() => {
+      // Snapshot the identity ONCE: the proposer/applier guard and the
+      // stored-signer resolution both act on this snapshot.
+      const identity = snapshotPrincipalIdentity(input.signer.principal);
       const proposal = this.proposals.get(proposalId);
       if (!proposal) {
         throw new OrgChangeApplyError(`org change proposal not found: ${proposalId}`);
@@ -158,7 +172,10 @@ export class OrgChangeApplyService {
 
       // Guardrails (day one), all inside the transaction so a refusal leaves no trace and no
       // mutation. Shared with the marker path through assertApplyAllowed.
-      this.assertApplyAllowed(proposal, input);
+      this.assertApplyAllowed(proposal, {
+        workspace_id: input.workspace_id,
+        principal_id: identity.principal_id,
+      });
 
       const ctx = this.contextFor(input.workspace_id);
       const refs = dedupe(applier.plan(ctx, proposal));
@@ -204,19 +221,34 @@ export class OrgChangeApplyService {
           workspace_id: input.workspace_id,
           proposal_id: proposalId,
           change_type: proposal.change_type,
-          applied_by: input.actor,
+          applied_by: identity.principal_id,
           reversible: applier.reversible,
           targets,
           status: "applied",
           created_at: at,
         }),
       );
+      // Sign over the STORED application row (its created_at, never a
+      // signing-time clock): mutation, application record, signature row, and
+      // events commit together or roll back together.
+      const decision = signOrgChangeApply({
+        database: this.database,
+        workspaceId: input.workspace_id,
+        signer: input.signer,
+        identity,
+        objectType: DECISION_OBJECT_TYPES.org_change_apply,
+        application: appliedApplication,
+      });
       this.events.append({
         workspace_id: input.workspace_id,
         kind: "org_change.applied",
-        actor: input.actor,
+        actor: identity.actor,
         payload: EventPayloadSchema.parse({
-          data: { org_change_application: appliedApplication, org_change_proposal: applied },
+          data: {
+            org_change_application: appliedApplication,
+            org_change_proposal: applied,
+            decision_signature: decisionSignatureRef(decision),
+          },
           refs: [appliedApplication.id, proposalId, ...refs.filter(isCanonicalId)],
         }),
         idempotency_key: `${proposalId}:applied`,
@@ -227,7 +259,7 @@ export class OrgChangeApplyService {
       this.events.append({
         workspace_id: input.workspace_id,
         kind: "org_change.verified",
-        actor: input.actor,
+        actor: identity.actor,
         payload: EventPayloadSchema.parse({
           data: { org_change_application: verified },
           refs: [verified.id, proposalId],
@@ -246,6 +278,7 @@ export class OrgChangeApplyService {
    */
   revert(applicationId: string, input: RevertInput): OrgChangeApplication {
     return this.database.transaction(() => {
+      const identity = snapshotPrincipalIdentity(input.signer.principal);
       const application = this.applications.get(applicationId);
       if (!application || application.workspace_id !== input.workspace_id) {
         throw new OrgChangeApplyError(`org change application not found: ${applicationId}`);
@@ -285,12 +318,27 @@ export class OrgChangeApplyService {
 
       const at = input.at ?? utcNow();
       const reverted = this.applications.setStatus(applicationId, "reverted", { reverted_at: at });
+      // Sign over the STORED reverted row (its reverted_at, never a
+      // signing-time clock), inside the same transaction as the reversal. The
+      // wrapper requires the stored row's reverted_at — there is no `?? at`
+      // fallback; a reverted row without its decision time refuses to sign.
+      const decision = signOrgChangeRevert({
+        database: this.database,
+        workspaceId: input.workspace_id,
+        signer: input.signer,
+        identity,
+        objectType: DECISION_OBJECT_TYPES.org_change_revert,
+        application: reverted,
+      });
       this.events.append({
         workspace_id: input.workspace_id,
         kind: "org_change.reverted",
-        actor: input.actor,
+        actor: identity.actor,
         payload: EventPayloadSchema.parse({
-          data: { org_change_application: reverted },
+          data: {
+            org_change_application: reverted,
+            decision_signature: decisionSignatureRef(decision),
+          },
           refs: [reverted.id, reverted.proposal_id],
         }),
         idempotency_key: `${applicationId}:reverted`,

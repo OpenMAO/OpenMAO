@@ -526,6 +526,185 @@ ON worker_credentials(token_hash);
 CREATE INDEX IF NOT EXISTS idx_worker_credentials_worker
 ON worker_credentials(workspace_id, worker_id);
 
+-- Signed-authority identity storage (ADR-0007 execution, M2). Explicit columns, never a
+-- payload_json blob: principals, keys, and credentials are read on every request, and explicit
+-- columns keep these tables out of the canonical schema bundle entirely. Like worker_credentials,
+-- these are fresh tables in the unconditional DDL path — no data migration, no SCHEMA_VERSION bump.
+CREATE TABLE IF NOT EXISTS principals (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('human', 'agent', 'worker', 'system')),
+  display_name TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active', 'disabled')),
+  dev_bootstrap INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_principals_workspace_id
+ON principals(workspace_id, id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_principals_workspace_display_name
+ON principals(workspace_id, display_name);
+
+CREATE TABLE IF NOT EXISTS principal_keys (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  algorithm TEXT NOT NULL CHECK (algorithm IN ('ed25519')),
+  public_key TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active', 'revoked')),
+  valid_from TEXT NOT NULL,
+  valid_until TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+  FOREIGN KEY (workspace_id, principal_id) REFERENCES principals(workspace_id, id)
+);
+
+-- Composite-FK target (worker_identities precedent): lets sibling tables reference
+-- (workspace_id, id) so an identity reference must exist AND live in the same workspace.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_principal_keys_workspace_id
+ON principal_keys(workspace_id, id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_principal_keys_public_key
+ON principal_keys(public_key);
+
+CREATE INDEX IF NOT EXISTS idx_principal_keys_principal
+ON principal_keys(workspace_id, principal_id, status);
+
+-- Only the SHA-256 of a principal credential token is ever stored; the plaintext is shown once
+-- at mint time. The CHECK pins the column to the digest shape (64 lowercase hex chars) so the
+-- "plaintext is never storable" invariant holds at the column, not just on the code path.
+CREATE TABLE IF NOT EXISTS principal_credentials (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL CHECK (length(token_hash) = 64 AND token_hash NOT GLOB '*[^0-9a-f]*'),
+  status TEXT NOT NULL CHECK (status IN ('active', 'revoked')),
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+  FOREIGN KEY (workspace_id, principal_id) REFERENCES principals(workspace_id, id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_principal_credentials_token_hash
+ON principal_credentials(token_hash);
+
+CREATE INDEX IF NOT EXISTS idx_principal_credentials_principal
+ON principal_credentials(workspace_id, principal_id);
+
+-- Composite identity FKs follow the worker_identities precedent: the referenced key must
+-- exist AND live in the same workspace, so an attestation can never point at a nonexistent
+-- or cross-workspace identity.
+CREATE TABLE IF NOT EXISTS principal_key_attestations (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  subject_key_id TEXT NOT NULL,
+  attester_key_id TEXT NOT NULL,
+  conditions_json TEXT NOT NULL,
+  signature TEXT NOT NULL,
+  domain_tag TEXT NOT NULL,
+  attested_at TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active', 'revoked')),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+  FOREIGN KEY (workspace_id, subject_key_id) REFERENCES principal_keys(workspace_id, id),
+  FOREIGN KEY (workspace_id, attester_key_id) REFERENCES principal_keys(workspace_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_principal_key_attestations_subject
+ON principal_key_attestations(workspace_id, subject_key_id, status);
+
+-- Same composite-FK rule for revocations: the revoked key and the revoking key must both
+-- exist in the revoking workspace. The unique index is scoped to (workspace_id, key_id) so
+-- the same key id can never be double-revoked inside a workspace.
+CREATE TABLE IF NOT EXISTS principal_key_revocations (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  key_id TEXT NOT NULL,
+  reason_code TEXT NOT NULL,
+  revoked_at TEXT NOT NULL,
+  revoked_by_key_id TEXT NOT NULL,
+  signature TEXT NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+  FOREIGN KEY (workspace_id, key_id) REFERENCES principal_keys(workspace_id, id),
+  FOREIGN KEY (workspace_id, revoked_by_key_id) REFERENCES principal_keys(workspace_id, id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_principal_key_revocations_key
+ON principal_key_revocations(workspace_id, key_id);
+
+-- One row per signed governance decision. The unique index on
+-- (workspace_id, object_type, object_id, signer_key_id) is the at-most-once analogue of the
+-- approvals CAS: replaying the same signature is a no-op, while a second signer on the same
+-- object appends a row — which gives quorum (#94) for free without designing it now.
+CREATE TABLE IF NOT EXISTS governance_signatures (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  object_type TEXT NOT NULL,
+  object_id TEXT NOT NULL,
+  signer_key_id TEXT NOT NULL,
+  signer_principal_id TEXT NOT NULL,
+  signed_bytes TEXT NOT NULL,
+  signature TEXT NOT NULL,
+  domain_tag TEXT NOT NULL,
+  signed_at TEXT NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+  FOREIGN KEY (workspace_id, signer_key_id) REFERENCES principal_keys(workspace_id, id),
+  FOREIGN KEY (workspace_id, signer_principal_id) REFERENCES principals(workspace_id, id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_governance_signatures_once
+ON governance_signatures(workspace_id, object_type, object_id, signer_key_id);
+
+CREATE INDEX IF NOT EXISTS idx_governance_signatures_object
+ON governance_signatures(workspace_id, object_type, object_id);
+
+-- Signed chain-head attestations (M6): the anchor outside the reconstructed event log
+-- that makes truncation of the newest events detectable (events.ts names the gap). One
+-- row per attested (workspace, head sequence), self-chaining via previous_attestation_id.
+-- Distinct from the checkpoints table (run-resumption state) in name, shape, and lifecycle. Like
+-- worker_credentials this is a fresh table in the unconditional DDL path — no data
+-- migration, no SCHEMA_VERSION bump. HONEST SCOPE: an attestation in the same file as the
+-- events detects truncation only relative to an attestation that survives or was exported;
+-- an attacker with direct file write access can delete attestation rows too.
+CREATE TABLE IF NOT EXISTS chain_head_attestations (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  head_sequence INTEGER NOT NULL,
+  head_hash TEXT NOT NULL,
+  event_count INTEGER NOT NULL,
+  previous_attestation_id TEXT,
+  signer_key_id TEXT NOT NULL,
+  signer_principal_id TEXT NOT NULL,
+  signature_id TEXT NOT NULL,
+  attested_at TEXT NOT NULL,
+  UNIQUE (workspace_id, head_sequence),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+  FOREIGN KEY (workspace_id, signer_key_id) REFERENCES principal_keys(workspace_id, id),
+  FOREIGN KEY (workspace_id, signer_principal_id) REFERENCES principals(workspace_id, id),
+  FOREIGN KEY (signature_id) REFERENCES governance_signatures(id),
+  FOREIGN KEY (previous_attestation_id) REFERENCES chain_head_attestations(id)
+);
+
+-- Composite-FK target (worker_identities precedent): lets the self-chain reference be
+-- scoped to the workspace in code, with a unique lookup per (workspace, id).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chain_head_attestations_workspace_id
+ON chain_head_attestations(workspace_id, id);
+
+-- Append-only, in the events-table style: the code path never updates or deletes an
+-- attestation. (Direct file writes bypass triggers by definition — see the honest-scope
+-- note above.)
+CREATE TRIGGER IF NOT EXISTS chain_head_attestations_no_update
+BEFORE UPDATE ON chain_head_attestations
+BEGIN
+  SELECT RAISE(ABORT, 'chain head attestations are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS chain_head_attestations_no_delete
+BEFORE DELETE ON chain_head_attestations
+BEGIN
+  SELECT RAISE(ABORT, 'chain head attestations are append-only');
+END;
+
 INSERT OR IGNORE INTO schema_version (version, applied_at)
 VALUES (${SCHEMA_VERSION}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 

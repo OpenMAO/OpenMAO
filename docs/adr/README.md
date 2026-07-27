@@ -34,6 +34,7 @@ reference ADRs, but only ADRs define durable decisions.
 | [ADR-0017](./ADR-0017-control-layer-architecture.md) | Organizational control layer architecture | Accepted |
 | [ADR-0018](./ADR-0018-typescript-canonical-runtime.md) | TypeScript canonical runtime | Accepted |
 | [ADR-0019](./ADR-0019-positioning-integration-and-openness.md) | Position OpenMAO at the intersection of integration and openness | Accepted |
+| [ADR-0020](./ADR-0020-signed-authority.md) | Signed authority — Ed25519 signatures over bound identity | Accepted (2026-07-27) |
 
 ## Rules
 

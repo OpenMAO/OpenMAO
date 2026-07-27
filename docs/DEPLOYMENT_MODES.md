@@ -94,8 +94,8 @@ cost to provide:
    worker executes in.
 3. **Process separation.** Worker code runs in a process with no ambient credentials and no
    direct write access to the substrate database, so it cannot forge or suppress gateway records.
-   Partially provided (per-worker scoped tokens close the API surface); full confinement is the
-   runtime-sandbox layer (see [LIMITATIONS.md](./LIMITATIONS.md) §11).
+   Partially provided (per-principal and per-worker scoped credentials close the API surface);
+   full confinement is the runtime-sandbox layer (see [LIMITATIONS.md](./LIMITATIONS.md) §11).
 
 **Mode 1 provides secret isolation only.** A worker process in local mode can reach the internet
 directly; nothing but the deployment contract stops it from taking a side effect outside the
@@ -110,6 +110,73 @@ worker's environment). The perimeter-classes work at
 [#69](https://github.com/OpenMAO/OpenMAO/issues/69) tracks making that boundary a first-class,
 checkable part of deployment; the omission-detection work at #111 makes violations of it
 *detectable* from the record even where they cannot be *prevented* by topology.
+
+## Remote access: a plan, not an implementation
+
+The server is **loopback-only** in every supported mode today. Multi-human operation works —
+two operators, each with their own principal credential, in two browser profiles against one
+loopback host — but reaching across a network is deliberately not implemented. This section is
+the plan for what real remote access requires. Nothing here ships until each item is built and
+tested; until then, any deployment that exposes the HTTP surface beyond loopback is outside the
+supported envelope.
+
+The threat model changes completely the moment the client is no longer a process on the same
+trusted host. A hostile client — or a hostile network between client and host — can observe,
+replay, and rewrite requests; can attempt credential brute force at network speed; can steal
+browser-held tokens through XSS; and can ride one origin's ambient authority into another's.
+The loopback gate makes all of these moot today; remote access must answer each one.
+
+1. **TLS termination.** All transport security is delegated to a TLS layer the deployment
+   operates — a reverse proxy (nginx, Caddy, a cloud load balancer) terminating TLS in front of
+   the OpenMAO process, with certificate management owned by that layer. OpenMAO itself should
+   keep speaking plain HTTP on loopback to the proxy; in-process TLS would duplicate machinery
+   the proxy ecosystem already operates better. HSTS and modern-cipher-only configuration are
+   proxy concerns, stated here because "we terminated TLS somewhere" without them is not
+   transport security.
+2. **Session handling.** Pasted per-principal tokens in the console are a local-mode
+   convenience, not a session design. Remote console access needs a one-time login ticket
+   exchanged for an `HttpOnly`, `Secure`, `SameSite=Strict` session cookie with bounded
+   lifetime and server-side revocation (the credential store already supports revocation;
+   sessions must resolve through it on every request, never cache standing in the browser).
+   Machine clients keep presenting per-principal credentials directly — the credential path is
+   already per-principal and revocable, so no new identity mechanism is needed for them.
+3. **CSRF and origin control.** Cookie sessions reintroduce ambient authority, so the server
+   must verify `Origin`/`Referer` on every state-changing request, issue and check CSRF tokens
+   for cookie-authenticated mutation, and send a restrictive Content-Security-Policy. Bearer
+   credentials in an `Authorization` header are not ambient and do not need CSRF protection —
+   one more reason machine clients keep bearer tokens while browsers get cookies.
+4. **Replay protection.** Within TLS, replay matters at two layers. Request-level replay (the
+   same authenticated request sent twice) is already handled where it counts: approval
+   resolution is a checked compare-and-set, signature recording is unique-indexed, and event
+   append is idempotency-keyed — a replayed decision is a no-op, not a duplicate. What TLS does
+   not cover is a request captured and re-presented *outside* the original channel, which is
+   where request signing enters.
+5. **Request signing, if added, uses RFC 9421 HTTP Message Signatures** — never the governance
+   signature envelope repurposed as an ad-hoc request signer. They are different problems: the
+   governance envelope attests *a decision* and is bound to stored state; HTTP Message
+   Signatures authenticate *a request in transit*, binding method, target, headers, body
+   digest, and a creation time with an explicit freshness window. Conflating them would weaken
+   both. The nonce and clock-window design, the covered-component list, and the key
+   distribution for request signing are all RFC 9421's to specify, and the implementation
+   should follow it rather than invent a parallel scheme.
+6. **Hostile-client hardening.** Rate limiting and lockout on authentication failures; no
+   credential material or error oracles that distinguish "unknown principal" from "wrong
+   token"; the loopback refusal inverted deliberately (binding non-loopback must require an
+   explicit, audited opt-in, never a flag that defaults open); and security headers (CSP,
+   `X-Content-Type-Options`, frame denial) on the console. None of these exist today because
+   none are reachable today.
+
+**Decisions already taken that keep this door open** (so the plan is small rather than
+architectural):
+
+- **Identities are transport-independent.** Principals, keys, and credentials are stored rows
+  with no loopback assumption; nothing in the identity model changes when the transport does.
+- **Credentials are already per-principal, scoped, and revocable** — the exact properties
+  remote sessions need to resolve standing on every request.
+- **Authentication and attestation are separate.** The credential proves who is calling; the
+  Ed25519 key attests decisions. Request signing can be added at the transport layer (RFC 9421)
+  without touching a single governance signature, and governance signatures keep their meaning
+  unchanged whether the request arrived over loopback, TLS, or an RFC 9421-signed channel.
 
 ## What stays constant across all modes
 

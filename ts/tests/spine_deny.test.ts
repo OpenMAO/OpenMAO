@@ -18,6 +18,7 @@ import {
   SpineService,
   WORKSPACE_ID,
 } from "../src/spine/index.js";
+import { createSigningOperator } from "./helpers/principals.js";
 
 const COLLECTIVE_MEMORY_ID = "mem_cccccccccccccccccccccccccccccccc";
 
@@ -25,6 +26,14 @@ describe("demo deny leg", () => {
   let tmpRoot: string;
   let database: Database;
   let service: SpineService;
+
+  /** A signing operator in the demo workspace, for decision calls in these tests. */
+  function demoSigner() {
+    // The signer may be needed before any demo command has run, so make sure
+    // the workspace row the principals tables FK to exists (idempotent).
+    service.initDemoWorkspace();
+    return createSigningOperator(database, WORKSPACE_ID, "Demo Operator").signer;
+  }
 
   beforeEach(() => {
     tmpRoot = mkdtempSync(join(tmpdir(), "openmao-ts-deny-"));
@@ -42,7 +51,7 @@ describe("demo deny leg", () => {
   });
 
   it("rejects the promotion approval, fails the run, and writes no collective memory", async () => {
-    const result = await service.denyDemo();
+    const result = await service.denyDemo({ signer: demoSigner() });
 
     expect(result.promotion_leg.status).toBe("failed");
     expect(result.promotion_leg.active_node).toBe("approval_rejected");
@@ -59,7 +68,7 @@ describe("demo deny leg", () => {
   });
 
   it("records the deny-by-default block with the policy decision on the chain", async () => {
-    const result = await service.denyDemo();
+    const result = await service.denyDemo({ signer: demoSigner() });
 
     expect(result.blocked_leg.capability_name).toBe(DENY_CAPABILITY_NAME);
     expect(result.blocked_leg.decision_outcome).toBe("block");
@@ -78,7 +87,7 @@ describe("demo deny leg", () => {
   });
 
   it("summarizes the deny story as ordered events with reasons", async () => {
-    const result = await service.denyDemo();
+    const result = await service.denyDemo({ signer: demoSigner() });
 
     expect(result.events.map((event) => event.kind)).toEqual([
       "approval.rejected",
@@ -93,22 +102,22 @@ describe("demo deny leg", () => {
   });
 
   it("replays idempotently", async () => {
-    const result = await service.denyDemo();
-    const replayed = await service.denyDemo();
+    const result = await service.denyDemo({ signer: demoSigner() });
+    const replayed = await service.denyDemo({ signer: demoSigner() });
 
     expect(replayed).toEqual(result);
   });
 
   it("refuses after the approve leg and points at a fresh state dir", async () => {
     await service.startDemo();
-    service.resumeDemo();
+    service.resumeDemo(null, { signer: demoSigner() });
 
-    await expect(service.denyDemo()).rejects.toThrow(/already completed/);
+    await expect(service.denyDemo({ signer: demoSigner() })).rejects.toThrow(/already completed/);
   });
 
   it("keeps the rejected approval durable: the approve leg cannot run after deny", async () => {
-    await service.denyDemo();
+    await service.denyDemo({ signer: demoSigner() });
 
-    expect(() => service.resumeDemo()).toThrow(/failed/);
+    expect(() => service.resumeDemo(null, { signer: demoSigner() })).toThrow(/failed/);
   });
 });

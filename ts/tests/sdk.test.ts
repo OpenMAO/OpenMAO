@@ -6,8 +6,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { WorkspaceSchema } from "../src/contracts/index.js";
-import { Database, WorkspaceStore } from "../src/persistence/index.js";
+import { Database, EventStore, WorkspaceStore } from "../src/persistence/index.js";
 import { OpenMaoLocalClient } from "../src/sdk/index.js";
+import type { AuthenticatedPrincipal } from "../src/security/authenticated-principal.js";
+import { authenticateOperatorPrincipal } from "./helpers/principals.js";
 
 const fixturePath = new URL("../../tests/fixtures/canonical_v0.json", import.meta.url);
 
@@ -35,10 +37,10 @@ describe("local SDK client", () => {
   it("lets a governed worker flow use services without importing stores", async () => {
     const fixture = await loadFixture();
     const workspaceId = (fixture.workspace as { id: string }).id;
-    const client = new OpenMaoLocalClient(database, {
-      workspace_id: workspaceId,
-      actor: "sdk_operator",
-    });
+    // The acting identity is a principal authenticated through the ordinary
+    // credential path — there is no actor parameter to name.
+    const operator = authenticateOperatorPrincipal(database, workspaceId, "SDK Operator");
+    const client = new OpenMaoLocalClient(database, operator);
 
     const worker = client.registerWorker({
       id: "worker_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -106,5 +108,43 @@ describe("local SDK client", () => {
       "ingestion.recorded",
       "work.reviewed",
     ]);
+    // Every authority-bearing event is recorded under the authenticated
+    // principal — the envelope's issuer is derived from it, never from input.
+    const events = client.events();
+    const byKind = new Map(events.map((event) => [event.kind, event]));
+    expect(byKind.get("work.created")?.actor).toBe(operator.principal_id);
+    expect(byKind.get("ingestion.recorded")?.actor).toBe(operator.principal_id);
+    expect(envelope.issued_by).toEqual({
+      actor_type: "operator",
+      actor_id: operator.principal_id,
+      display_name: null,
+    });
+  });
+
+  it("cannot be constructed with a hand-built identity — no actor parameter exists", async () => {
+    const fixture = await loadFixture();
+    const workspaceId = (fixture.workspace as { id: string }).id;
+    // The old {workspace_id, actor} context no longer typechecks; this drives
+    // the same shape through a cast to prove it also fails AT RUNTIME — a
+    // caller cannot record an event attributed to an identity it did not
+    // authenticate as, typed or not.
+    const forged = { workspace_id: workspaceId, actor: "mallory" };
+    expect(
+      () => new OpenMaoLocalClient(database, forged as unknown as AuthenticatedPrincipal),
+    ).toThrow(/identity must be an authenticated principal/);
+    // A structurally complete but unauthenticated lookalike fails the same way.
+    const lookalike = {
+      principal_id: "principal_mallory",
+      workspace_id: workspaceId,
+      kind: "human",
+      actor: "principal_mallory",
+      key_id: null,
+      can_sign: false,
+      dev_bootstrap: false,
+    };
+    expect(
+      () => new OpenMaoLocalClient(database, lookalike as unknown as AuthenticatedPrincipal),
+    ).toThrow(/identity must be an authenticated principal/);
+    expect(new EventStore(database).listForWorkspace(workspaceId)).toHaveLength(0);
   });
 });

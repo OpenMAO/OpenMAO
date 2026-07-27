@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Database, EventStore, WorkItemStore } from "../src/persistence/index.js";
+import { SpineService, WORKSPACE_ID } from "../src/spine/index.js";
 import {
   approveReferenceWorkerDemo,
   REFERENCE_CAPABILITY_APPROVAL_ID,
@@ -17,6 +18,7 @@ import {
   runReferenceWorkerDemo,
 } from "../src/workers/index.js";
 import { WorldModelService } from "../src/world/index.js";
+import { createSigningOperator } from "./helpers/principals.js";
 
 let tmpRoot: string;
 let database: Database;
@@ -34,10 +36,15 @@ afterEach(() => {
 
 describe("reference external worker", () => {
   it("suspends for approval, resumes idempotently, and projects into the world model", async () => {
-    const suspended = await runReferenceWorkerDemo(database);
-    const replayedSuspension = await runReferenceWorkerDemo(database);
-    const approved = await approveReferenceWorkerDemo(database);
-    const replayedApproval = await approveReferenceWorkerDemo(database);
+    new SpineService(database).initDemoWorkspace();
+    // The demo records under a genuinely authenticated operator — the demo
+    // mock is not an identity and never appears as an actor. The approval is
+    // signed by that operator's enrolled key.
+    const operator = createSigningOperator(database, WORKSPACE_ID, "Demo Operator");
+    const suspended = await runReferenceWorkerDemo(database, operator.principal);
+    const replayedSuspension = await runReferenceWorkerDemo(database, operator.principal);
+    const approved = await approveReferenceWorkerDemo(database, operator.signer);
+    const replayedApproval = await approveReferenceWorkerDemo(database, operator.signer);
     const events = new EventStore(database).listForWorkspace(approved.workspace_id);
     const work = new WorkItemStore(database).get(REFERENCE_WORK_ID);
     const world = new WorldModelService(database).rebuild(approved.workspace_id, REFERENCE_RUN_ID);
@@ -77,5 +84,14 @@ describe("reference external worker", () => {
     );
     expect(world.external_workers).toContain(REFERENCE_WORKER_ID);
     expect(world.recent_ingestions).toContain(REFERENCE_INGESTION_ID);
+    // The approval went on the record under the AUTHENTICATED operator — the
+    // hardcoded "reference_worker_demo" actor is gone from every event.
+    const approvalEvent = events.find(
+      (event) =>
+        event.kind === "approval.approved" &&
+        JSON.stringify(event.payload).includes(REFERENCE_CAPABILITY_APPROVAL_ID),
+    );
+    expect(approvalEvent?.actor).toBe(operator.principal.principal_id);
+    expect(events.every((event) => event.actor !== "reference_worker_demo")).toBe(true);
   });
 });

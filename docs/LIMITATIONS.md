@@ -1,6 +1,6 @@
 # Known Limitations
 
-**Status:** maintained honesty document. Last reviewed 2026-07-25.
+**Status:** maintained honesty document. Last reviewed 2026-07-27.
 
 A governance project should state its own boundaries instead of letting reviewers discover them.
 Every claim below is meant to match the code on `main`. If a statement here overstates or
@@ -25,20 +25,47 @@ from worker self-reports, plus omission detection — is
 [#111](https://github.com/OpenMAO/OpenMAO/issues/111), with the contract-level design settled in
 [ADR-0013](adr/ADR-0013-reconcilability-as-a-capability-property.md).
 
-## 2. The platform trust boundary on main is weaker than the capability boundary
+## 2. Identity and signing: what the boundary now guarantees — and what it does not
 
-Per-worker scoped tokens ([#102](https://github.com/OpenMAO/OpenMAO/issues/102)) and the
-approval-integrity fixes — proposer must not approve, blank-actor rejection, a production
-corroboration floor ([#101](https://github.com/OpenMAO/OpenMAO/issues/101)) — are now on `main`
-(2026-07-25). Workers authenticate with their own scoped, default-deny tokens; their actor and
-workspace are forced to the resolved identity and cannot be spoofed through headers.
+Per-principal identity has replaced the shared operator token and the self-asserted actor
+header ([ADR-0020](adr/ADR-0020-signed-authority.md), executing
+[#92](https://github.com/OpenMAO/OpenMAO/issues/92)). Every surface — HTTP, console, and CLI —
+authenticates a per-principal credential; the actor recorded on every event is resolved from
+that credential, and a self-asserted actor header is rejected with 400, not ignored. The
+authority-moving transitions (approval approve/reject, autonomy widening ratification,
+org-change apply/revert, key enrolment and revocation, chain-head attestation) carry Ed25519
+signatures over the RFC 7515 detached-JWS signing input, verified against the signer's stored
+enrolled key inside the same transaction as the state change. Separation of duties now compares
+stable principal ids resolved from stored rows, not caller-supplied strings.
 
-What remains: the *operator* surface still uses a single shared token with a self-asserted actor
-header, so a holder of the operator token can act as any operator-side actor. Binding acting
-identity at the HTTP boundary and a first-class Member/Principal model are
-[#92](https://github.com/OpenMAO/OpenMAO/issues/92) and
-[#93](https://github.com/OpenMAO/OpenMAO/issues/93). Until then, treat the operator token as
-single-trusted-operator.
+What this guarantees: acting identity is bound at every boundary; the signed governance record
+is cryptographically attributable and re-verifiable by a third party holding the public key;
+the legacy unsigned privileged path is deleted, not deprecated.
+
+What it does **not** guarantee — stated exactly:
+
+- **Signing is server-side.** A signature attests "the substrate, holding this principal's key,
+  signed on presentation of this principal's credential" — exactly as strong as the credential,
+  not stronger. It does not prove a distinct human touched a key only they hold. Device-held
+  keys would give individual non-repudiation and are **not implemented**; they belong to the
+  remote-access work.
+- **Direct write access to the SQLite file remains equivalent to root.** The CLI no longer lets
+  a caller choose an identity, but nothing can stop someone who bypasses the CLI and edits the
+  database file directly. File-level access control is the deployment's responsibility.
+- **Chain attestations detect truncation only relative to an attestation that survives or was
+  exported.** An attacker who can delete events from the file can delete the attestation rows
+  beside them. Attestation is tamper-evidence, not tamper-resistance; exporting attestations
+  (see [CHAIN_EVIDENCE.md](CHAIN_EVIDENCE.md)) is what gives the anchor independent value.
+- **Rotating a signing key voids the anchors it made.** Revocation is untimestamped, so
+  verification fails closed on a revoked key — historical attestations by that key included.
+  Re-attest the chain head after every rotation.
+- **The server remains loopback-only.** There is no remote or TLS surface; the remote-access
+  plan is written ([DEPLOYMENT_MODES.md](DEPLOYMENT_MODES.md), "Remote access") and
+  deliberately unimplemented.
+- **Authority is still binary** (principal vs worker). `AuthorityGrant`, quorum, and
+  impact-gated approval authority
+  ([#94](https://github.com/OpenMAO/OpenMAO/issues/94)) are not implemented; one active
+  operator credential still wields full operator authority within a workspace.
 
 ## 3. At-most-once has a crash window at the provider edge
 
@@ -58,7 +85,10 @@ reconciliation) and fault-injection-verifying it is part of
 Events are append-only (enforced with SQL triggers) and hash-chained (SHA-256, each event carrying
 the previous event's hash back to a fixed genesis value), the intended call is logged before
 execution, and chain verification has a one-command operator surface (`openmao verify-chain`,
-[#119](https://github.com/OpenMAO/OpenMAO/issues/119), shipped). Two gaps: events do not yet carry
+[#119](https://github.com/OpenMAO/OpenMAO/issues/119), shipped). Signed chain-head
+attestations (`openmao attest`) now let verification detect truncation of the newest events —
+but only relative to an attestation that survives or was exported, since attestation rows live
+in the same file as the events (§2). Two gaps: events do not yet carry
 an expected-vs-actual decision envelope that would make regressions detectable from the log alone
 ([#114](https://github.com/OpenMAO/OpenMAO/issues/114)), and events reported by cooperative
 workers are attested by the worker, not yet provably distinct from enforced-path events
@@ -134,7 +164,7 @@ Status against the OWASP Top 10 for Agentic Applications (December 2025), stated
 | --- | --- | --- |
 | Tool misuse | Addressed: deny-by-default capability grants, typed schemas, approval gates, broker-held credentials, per-worker scoped tokens | Per-call scoped-credential minting (ADR-0011) |
 | Human-agent trust exploitation | Addressed: approvals are durable state with recorded rejection; proposer must not approve; production corroboration floor ([#101](https://github.com/OpenMAO/OpenMAO/issues/101)) | Structural multi-human separation of duties ([#94](https://github.com/OpenMAO/OpenMAO/issues/94)) |
-| Identity abuse | Partial: workers hold scoped, unspoofable identities ([#102](https://github.com/OpenMAO/OpenMAO/issues/102)); the operator surface is still a shared token | [#92](https://github.com/OpenMAO/OpenMAO/issues/92), [#93](https://github.com/OpenMAO/OpenMAO/issues/93) |
+| Identity abuse | Partial: workers hold scoped, unspoofable identities ([#102](https://github.com/OpenMAO/OpenMAO/issues/102)); every surface now authenticates per-principal credentials and authority-moving decisions are signed ([ADR-0020](adr/ADR-0020-signed-authority.md)) | Server-side signing is credential-strength, not individual non-repudiation; direct database-file write access remains equivalent to root (§2) |
 | Memory poisoning | Addressed: human-ratified promotion, independent corroboration, provenance as hard invariant with provenance-gated recall ([#113](https://github.com/OpenMAO/OpenMAO/issues/113)) | Audit-payload hardening ([#80](https://github.com/OpenMAO/OpenMAO/issues/80)) |
 | Rogue agents | Partial: autonomy starts advisory and bounded; evidence-triggered suspension narrows grants automatically, widening is human-only ([#120](https://github.com/OpenMAO/OpenMAO/issues/120)) | No mid-flight revocation (§9); widening has no operator surface (§6) |
 | Cascading failures | Partial: bounded work envelopes, at-most-once invocation guards | Provider-edge crash window (§3) |

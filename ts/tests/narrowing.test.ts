@@ -36,6 +36,7 @@ import {
   WorkItemStore,
   WorkspaceStore,
 } from "../src/persistence/index.js";
+import { createSigningOperator } from "./helpers/principals.js";
 
 const fixturePath = new URL("../../tests/fixtures/canonical_v0.json", import.meta.url);
 
@@ -246,7 +247,7 @@ async function requestAgentApproval(registry: CapabilityRegistryService): Promis
 function rejectApproval(approvalId: string): string {
   new ApprovalService(database).reject(approvalId, {
     workspace_id: WORKSPACE,
-    actor: "test_operator",
+    signer: createSigningOperator(database, WORKSPACE, "Test Operator").signer,
   });
   const rejected = new EventStore(database).getByIdempotencyKey(
     WORKSPACE,
@@ -502,7 +503,7 @@ describe("asymmetric autonomy narrowing", () => {
     expect(invocation.decision.outcome).toBe("require_approval");
     new ApprovalService(database).reject(invocation.approval_id ?? "", {
       workspace_id: WORKSPACE,
-      actor: "test_operator",
+      signer: createSigningOperator(database, WORKSPACE, "Test Operator").signer,
     });
     const suspension = narrowing.scan({ workspace_id: WORKSPACE }).suspensions[0];
     expect(suspension?.actor_id).toBe(WORKER);
@@ -634,7 +635,10 @@ describe("asymmetric autonomy narrowing", () => {
 
     // A human explicitly APPROVES the call after the suspension — narrowing is reversible only by
     // a ratified lift, so resume must still block and must never execute the provider.
-    new ApprovalService(database).approve(pendingApproval, { workspace_id: WORKSPACE });
+    new ApprovalService(database).approve(pendingApproval, {
+      workspace_id: WORKSPACE,
+      signer: createSigningOperator(database, WORKSPACE, "Test Operator").signer,
+    });
     const resumed = await registry.resumeApprovedCall(pendingApproval, { workspace_id: WORKSPACE });
 
     expect(resumed.result?.status).toBe("blocked");
@@ -667,7 +671,7 @@ describe("asymmetric autonomy narrowing", () => {
     const rejectInvocation = await registry.invoke(workerCall(reject.run, reject.taskId));
     new ApprovalService(database).reject(rejectInvocation.approval_id ?? "", {
       workspace_id: WORKSPACE,
-      actor: "test_operator",
+      signer: createSigningOperator(database, WORKSPACE, "Test Operator").signer,
     });
 
     // A fresh worker call goes pending BEFORE the suspension is scanned into existence.
@@ -684,7 +688,10 @@ describe("asymmetric autonomy narrowing", () => {
       throw new Error("expected an active worker suspension");
     }
 
-    new ApprovalService(database).approve(pendingApprovalId, { workspace_id: WORKSPACE });
+    new ApprovalService(database).approve(pendingApprovalId, {
+      workspace_id: WORKSPACE,
+      signer: createSigningOperator(database, WORKSPACE, "Test Operator").signer,
+    });
     const resumed = await registry.resumeApprovedCall(pendingApprovalId, {
       workspace_id: WORKSPACE,
     });

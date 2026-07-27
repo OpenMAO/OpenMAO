@@ -57,3 +57,8 @@ coverage/
 /docs/templates/AUDIT_REPORT_TEMPLATE.md
 /docs/templates/SESSION_TEMPLATE.md
 /docs/templates/SIGNOFF_LOG_TEMPLATE.md
+
+# long-horizon-goal local pointers (must not be committed)
+.goal/lease.json
+.goal/last-head
+node_modules

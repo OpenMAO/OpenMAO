@@ -180,8 +180,16 @@ describe("TypeScript persistence", () => {
         "node_effects",
         "active_run_locks",
         "worker_credentials",
+        "principals",
+        "principal_keys",
+        "principal_credentials",
+        "principal_key_attestations",
+        "principal_key_revocations",
+        "governance_signatures",
       ]),
     );
+    // The six identity tables are fresh tables in the unconditional DDL path (the
+    // worker_credentials precedent): no data migration, so no SCHEMA_VERSION bump.
     expect(userVersion).toBe(8);
   });
 

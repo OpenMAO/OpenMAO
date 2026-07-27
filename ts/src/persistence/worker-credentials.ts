@@ -52,6 +52,16 @@ export class WorkerCredentialStore {
     return credential;
   }
 
+  get(credentialId: string): WorkerCredential | null {
+    const row = this.database.connection
+      .prepare(
+        `SELECT id, workspace_id, worker_id, token_hash, status, created_at
+         FROM worker_credentials WHERE id = ?`,
+      )
+      .get(credentialId) as WorkerCredentialRow | undefined;
+    return row ? this.fromRow(row) : null;
+  }
+
   getActiveByTokenHash(tokenHash: string): WorkerCredential | null {
     const row = this.database.connection
       .prepare(
@@ -70,6 +80,21 @@ export class WorkerCredentialStore {
       )
       .all(workspaceId, workerId) as WorkerCredentialRow[];
     return rows.map((row) => this.fromRow(row));
+  }
+
+  /** The missing writer for the modelled `revoked` status (#63's unlanded fast-follow). */
+  revoke(credentialId: string): WorkerCredential {
+    const current = this.get(credentialId);
+    if (!current) {
+      throw new Error(`worker credential not found: ${credentialId}`);
+    }
+    if (current.status === "revoked") {
+      return current;
+    }
+    this.database.connection
+      .prepare("UPDATE worker_credentials SET status = 'revoked' WHERE id = ?")
+      .run(credentialId);
+    return { ...current, status: "revoked" };
   }
 
   private fromRow(row: WorkerCredentialRow): WorkerCredential {

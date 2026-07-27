@@ -22,7 +22,8 @@
     "demo": "tsx ts/src/cli.ts demo",
     "demo-approve": "tsx ts/src/cli.ts demo-approve",
     "demo-deny": "tsx ts/src/cli.ts demo-deny",
-    "verify-chain": "tsx ts/src/cli.ts verify-chain"
+    "verify-chain": "tsx ts/src/cli.ts verify-chain",
+    "keys": "tsx ts/src/cli.ts principals init"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",

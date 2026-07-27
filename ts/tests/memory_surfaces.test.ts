@@ -19,13 +19,12 @@ import {
   PromotionCandidateStore,
   WorkspaceStore,
 } from "../src/persistence/index.js";
+import { principalHeaders, seedPrincipalAtPath } from "./helpers/principals.js";
 
 const fixturePath = new URL("../../tests/fixtures/canonical_v0.json", import.meta.url);
-const operatorToken = "test-operator-token";
 const SOURCE = "mem_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
 const CORROBORATOR = "mem_b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2";
 const CANDIDATE = "promo_dddddddddddddddddddddddddddddddd";
-const ACTOR = "agent_77777777777777777777777777777777";
 
 let tmpRoot: string;
 let dbPath: string;
@@ -135,19 +134,10 @@ describe("memory operator surfaces", () => {
 
     const corro = capture();
     expect(
-      await runCli(
-        [
-          "memory",
-          "corroborate",
-          CANDIDATE,
-          CORROBORATOR,
-          "--by",
-          ACTOR,
-          "--workspace",
-          workspaceId,
-        ],
-        { dbPath, write: corro.write },
-      ),
+      await runCli(["memory", "corroborate", CANDIDATE, CORROBORATOR, "--workspace", workspaceId], {
+        dbPath,
+        write: corro.write,
+      }),
     ).toBe(0);
     const corroOut = JSON.parse(corro.lines.join("\n")) as {
       candidate: { corroboration_count: number };
@@ -156,16 +146,14 @@ describe("memory operator surfaces", () => {
   });
 
   it("serves search and corroborate over the API", async () => {
-    const server = createServer({ dbPath, operatorToken });
+    const operator = seedPrincipalAtPath(dbPath, workspaceId, "Test Operator");
+    const server = createServer({ dbPath });
     await new Promise<void>((resolve) => {
       server.listen(0, "127.0.0.1", () => resolve());
     });
     const address = server.address() as AddressInfo;
     const baseUrl = `http://127.0.0.1:${address.port}`;
-    const headers = {
-      "x-openmao-actor": "test_operator",
-      "x-openmao-operator-token": operatorToken,
-    };
+    const headers = principalHeaders(operator.token);
     try {
       const search = (await fetch(
         `${baseUrl}/memory/search?q=deliverability&workspace_id=${workspaceId}`,
@@ -178,7 +166,7 @@ describe("memory operator surfaces", () => {
         {
           method: "POST",
           headers: { ...headers, "content-type": "application/json" },
-          body: JSON.stringify({ source_memory_entry: CORROBORATOR, corroborated_by: ACTOR }),
+          body: JSON.stringify({ source_memory_entry: CORROBORATOR }),
         },
       ).then((response) => response.json())) as { candidate: { corroboration_count: number } };
       expect(corroborate.candidate.corroboration_count).toBe(1);
@@ -200,27 +188,29 @@ describe("memory operator surfaces", () => {
     }
   });
 
-  it("scopes corroborate to the candidate's workspace (404 on mismatch)", async () => {
-    const server = createServer({ dbPath, operatorToken });
+  it("refuses a workspace selection that conflicts with the credential (400 workspace_mismatch)", async () => {
+    const operator = seedPrincipalAtPath(dbPath, workspaceId, "Test Operator");
+    const server = createServer({ dbPath });
     await new Promise<void>((resolve) => {
       server.listen(0, "127.0.0.1", () => resolve());
     });
     const address = server.address() as AddressInfo;
     const baseUrl = `http://127.0.0.1:${address.port}`;
-    const headers = {
-      "x-openmao-actor": "test_operator",
-      "x-openmao-operator-token": operatorToken,
-    };
+    const headers = principalHeaders(operator.token);
     try {
       const response = await fetch(
         `${baseUrl}/memory/promotions/${CANDIDATE}/corroborate?workspace_id=ws_00000000000000000000000000000000`,
         {
           method: "POST",
           headers: { ...headers, "content-type": "application/json" },
-          body: JSON.stringify({ source_memory_entry: CORROBORATOR, corroborated_by: ACTOR }),
+          body: JSON.stringify({ source_memory_entry: CORROBORATOR }),
         },
       );
-      expect(response.status).toBe(404);
+      // The credential forces the workspace, so a conflicting selection fails
+      // closed at the boundary — the candidate is unreachable across
+      // workspaces, the guarantee the retired 404 pinned.
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "workspace_mismatch" });
     } finally {
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
@@ -270,16 +260,14 @@ describe("memory operator surfaces", () => {
     }
     db.close();
 
-    const server = createServer({ dbPath, operatorToken });
+    const operator = seedPrincipalAtPath(dbPath, workspaceId, "Test Operator");
+    const server = createServer({ dbPath });
     await new Promise<void>((resolve) => {
       server.listen(0, "127.0.0.1", () => resolve());
     });
     const address = server.address() as AddressInfo;
     const baseUrl = `http://127.0.0.1:${address.port}`;
-    const headers = {
-      "x-openmao-actor": "test_operator",
-      "x-openmao-operator-token": operatorToken,
-    };
+    const headers = principalHeaders(operator.token);
     try {
       const individual = (await fetch(
         `${baseUrl}/memory/individual/${owner}?workspace_id=${workspaceId}`,

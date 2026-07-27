@@ -24,6 +24,7 @@ import {
   WorkspaceStore,
 } from "../src/persistence/index.js";
 import { createApprovalServiceWithApplications } from "../src/runtime/approvals.js";
+import { createSigningOperator } from "./helpers/principals.js";
 
 const fixturePath = new URL("../../tests/fixtures/canonical_v0.json", import.meta.url);
 const REQUESTED_BY = "agent_55555555555555555555555555555555";
@@ -151,7 +152,10 @@ describe("corroboration-based ratification", () => {
       "an independent run reached the same conclusion",
     );
 
-    new ApprovalService(database).approve(APPROVAL_ID, { workspace_id: run.workspace_id });
+    new ApprovalService(database).approve(APPROVAL_ID, {
+      workspace_id: run.workspace_id,
+      signer: createSigningOperator(database, run.workspace_id, "Approver").signer,
+    });
     const collective = service.ratifyAndWriteCollective(candidate.id, {
       workspace_id: run.workspace_id,
       approval_id: APPROVAL_ID,
@@ -180,7 +184,7 @@ describe("corroboration-based ratification", () => {
     expect(() =>
       createApprovalServiceWithApplications(database).approve(APPROVAL_ID, {
         workspace_id: run.workspace_id,
-        actor: "operator",
+        signer: createSigningOperator(database, run.workspace_id, "Approver").signer,
       }),
     ).toThrow(/corroboration/);
     expect(new PromotionCandidateStore(database).get(candidate.id)?.status).toBe("pending");
@@ -194,7 +198,7 @@ describe("corroboration-based ratification", () => {
     });
     const approved = createApprovalServiceWithApplications(database).approve(APPROVAL_ID, {
       workspace_id: run.workspace_id,
-      actor: "operator",
+      signer: createSigningOperator(database, run.workspace_id, "Approver").signer,
     });
 
     expect(approved.status).toBe("approved");
@@ -300,7 +304,10 @@ describe("corroboration-based ratification", () => {
       run_id: run.id,
       approval_id: APPROVAL_ID,
     });
-    new ApprovalService(database).approve(APPROVAL_ID, { workspace_id: run.workspace_id });
+    new ApprovalService(database).approve(APPROVAL_ID, {
+      workspace_id: run.workspace_id,
+      signer: createSigningOperator(database, run.workspace_id, "Approver").signer,
+    });
     service.ratifyAndWriteCollective(candidate.id, {
       workspace_id: run.workspace_id,
       approval_id: APPROVAL_ID,
@@ -328,7 +335,10 @@ describe("corroboration-based ratification", () => {
       run_id: run.id,
       approval_id: APPROVAL_ID,
     });
-    new ApprovalService(database).approve(APPROVAL_ID, { workspace_id: run.workspace_id });
+    new ApprovalService(database).approve(APPROVAL_ID, {
+      workspace_id: run.workspace_id,
+      signer: createSigningOperator(database, run.workspace_id, "Approver").signer,
+    });
 
     expect(() =>
       service.ratifyAndWriteCollective(candidate.id, {
@@ -400,7 +410,10 @@ describe("corroboration-based ratification", () => {
       run_id: run.id,
       approval_id: APPROVAL_ID,
     });
-    new ApprovalService(database).approve(APPROVAL_ID, { workspace_id: run.workspace_id });
+    new ApprovalService(database).approve(APPROVAL_ID, {
+      workspace_id: run.workspace_id,
+      signer: createSigningOperator(database, run.workspace_id, "Approver").signer,
+    });
 
     expect(() =>
       service.ratifyAndWriteCollective(candidate.id, {

@@ -1,0 +1,18 @@
+{
+  "captured_at": "2026-07-26T16:13:15Z",
+  "captured_at_head": "015dd5f508309779a67d910515ede6d0117ca5ba",
+  "note": "Pre-state. 'Done' requires a DELTA from this, never a criterion already green.",
+  "criteria": {
+    "make_check_green": { "baseline": "PASS", "detail": "exit 0; 39 files / 329 tests; hygiene 167 tracked files", "expect_at_done": "PASS with MORE tests than 329" },
+    "signing_module_exists": { "baseline": "FAIL", "detail": "ts/src/security/signing.ts absent" },
+    "signing_broker_exists": { "baseline": "FAIL", "detail": "ts/src/security/signing-broker.ts absent" },
+    "principal_auth_exists": { "baseline": "FAIL", "detail": "ts/src/security/principal-auth.ts absent" },
+    "principal_stores_exist": { "baseline": "FAIL", "detail": "ts/src/persistence/principals.ts absent" },
+    "signature_store_exists": { "baseline": "FAIL", "detail": "ts/src/persistence/signatures.ts absent" },
+    "chain_attestations_exist": { "baseline": "FAIL", "detail": "ts/src/persistence/chain-attestations.ts absent" },
+    "authority_resolver_exists": { "baseline": "FAIL", "detail": "ts/src/governance/authority.ts absent" },
+    "null_actor_escape_deleted": { "baseline": "FAIL", "detail": "1 occurrence of 'actor === null' in ts/src/governance/approvals.ts" },
+    "worker_credential_revoke_exists": { "baseline": "FAIL", "detail": "0 occurrences of 'revoke(' in ts/src/persistence/worker-credentials.ts" },
+    "negative_vectors_pinned": { "baseline": "FAIL", "detail": "no signing vector fixture" }
+  }
+}
