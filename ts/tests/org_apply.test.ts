@@ -36,6 +36,7 @@ import {
   WorkspaceStore,
 } from "../src/persistence/index.js";
 import { createApprovalServiceWithApplications } from "../src/runtime/approvals.js";
+import { createSigningOperator } from "./helpers/principals.js";
 
 const fixturePath = new URL("../../tests/fixtures/canonical_v0.json", import.meta.url);
 
@@ -109,10 +110,15 @@ function proposeCleanup(
   return { proposalId: proposal.id, approvalId: approval_id };
 }
 
+/** A signing operator (human principal + active enrolled key) for decision calls. */
+function operator(workspaceId: string, displayName = "Operator") {
+  return createSigningOperator(database, workspaceId, displayName);
+}
+
 function approve(workspaceId: string, approvalId: string): void {
   createApprovalServiceWithApplications(database).approve(approvalId, {
     workspace_id: workspaceId,
-    actor: "human",
+    signer: operator(workspaceId, "Approver").signer,
   });
 }
 
@@ -151,7 +157,7 @@ describe("M1 reversible apply — memory_cleanup", () => {
 
     const application = new OrgChangeApplyService(database).apply(proposalId, {
       workspace_id: workspaceId,
-      actor: "operator",
+      signer: operator(workspaceId).signer,
     });
 
     expect(application.status).toBe("verified");
@@ -179,11 +185,11 @@ describe("M1 reversible apply — memory_cleanup", () => {
 
     const firstApply = new OrgChangeApplyService(database).apply(proposalId, {
       workspace_id: workspaceId,
-      actor: "operator",
+      signer: operator(workspaceId).signer,
     });
     const replay = new OrgChangeApplyService(database).apply(proposalId, {
       workspace_id: workspaceId,
-      actor: "a_different_operator",
+      signer: operator(workspaceId, "Different Operator").signer,
     });
 
     expect(replay).toEqual(firstApply);
@@ -195,11 +201,14 @@ describe("M1 reversible apply — memory_cleanup", () => {
     const entry = makeEntry(workspaceId);
     const proposalId = approvedCleanup(workspaceId, [entry.id]);
     const service = new OrgChangeApplyService(database);
-    const application = service.apply(proposalId, { workspace_id: workspaceId, actor: "operator" });
+    const application = service.apply(proposalId, {
+      workspace_id: workspaceId,
+      signer: operator(workspaceId).signer,
+    });
 
     const reverted = service.revert(application.id, {
       workspace_id: workspaceId,
-      actor: "operator",
+      signer: operator(workspaceId).signer,
     });
 
     expect(reverted.status).toBe("reverted");
@@ -212,7 +221,10 @@ describe("M1 reversible apply — memory_cleanup", () => {
     const entry = makeEntry(workspaceId);
     const proposalId = approvedCleanup(workspaceId, [entry.id]);
     const service = new OrgChangeApplyService(database);
-    const application = service.apply(proposalId, { workspace_id: workspaceId, actor: "operator" });
+    const application = service.apply(proposalId, {
+      workspace_id: workspaceId,
+      signer: operator(workspaceId).signer,
+    });
 
     // Out-of-band drift: the entry is moved off the state the application left it in.
     new MemoryEntryStore(database).setStatusIfCurrent(entry.id, {
@@ -222,7 +234,10 @@ describe("M1 reversible apply — memory_cleanup", () => {
     });
 
     expect(() =>
-      service.revert(application.id, { workspace_id: workspaceId, actor: "operator" }),
+      service.revert(application.id, {
+        workspace_id: workspaceId,
+        signer: operator(workspaceId).signer,
+      }),
     ).toThrow(OrgChangeRevertConflictError);
   });
 });
@@ -240,7 +255,7 @@ describe("M1 reversible apply — guardrails", () => {
     expect(() =>
       new OrgChangeApplyService(database).apply(proposalId, {
         workspace_id: workspaceId,
-        actor: "operator",
+        signer: operator(workspaceId).signer,
       }),
     ).toThrow(OrgChangeApplyPausedError);
 
@@ -257,7 +272,7 @@ describe("M1 reversible apply — guardrails", () => {
     expect(() =>
       new OrgChangeApplyService(database, { maxBlastRadius: 1 }).apply(proposalId, {
         workspace_id: workspaceId,
-        actor: "operator",
+        signer: operator(workspaceId).signer,
       }),
     ).toThrow(OrgChangeBlastRadiusError);
 
@@ -268,12 +283,15 @@ describe("M1 reversible apply — guardrails", () => {
   it("refuses to apply when the applier is the proposer (no self-rubber-stamping)", async () => {
     const workspaceId = await seedWorkspace();
     const entry = makeEntry(workspaceId);
-    const proposalId = approvedCleanup(workspaceId, [entry.id], { proposed_by: "agent_scribe" });
+    const scribe = operator(workspaceId, "Agent Scribe");
+    const proposalId = approvedCleanup(workspaceId, [entry.id], {
+      proposed_by: scribe.principal.principal_id,
+    });
 
     expect(() =>
       new OrgChangeApplyService(database).apply(proposalId, {
         workspace_id: workspaceId,
-        actor: "agent_scribe",
+        signer: scribe.signer,
       }),
     ).toThrow(ProposerApplierSeparationError);
   });
@@ -286,7 +304,7 @@ describe("M1 reversible apply — guardrails", () => {
     expect(() =>
       new OrgChangeApplyService(database).apply(proposalId, {
         workspace_id: workspaceId,
-        actor: "operator",
+        signer: operator(workspaceId).signer,
       }),
     ).toThrow(EvidenceRequiredError);
   });
@@ -299,7 +317,7 @@ describe("M1 reversible apply — guardrails", () => {
     expect(() =>
       new OrgChangeApplyService(database).apply(proposalId, {
         workspace_id: workspaceId,
-        actor: "operator",
+        signer: operator(workspaceId).signer,
       }),
     ).toThrow(MemoryEntryStatusConflictError);
 
@@ -315,7 +333,7 @@ describe("M1 reversible apply — markApplied integration", () => {
 
     const applied = new OrgChangeService(database).markApplied(proposalId, {
       workspace_id: workspaceId,
-      actor: "operator",
+      signer: operator(workspaceId).signer,
     });
 
     expect(applied.status).toBe("applied");
@@ -347,7 +365,7 @@ describe("M1 reversible apply — markApplied integration", () => {
 
     const applied = new OrgChangeService(database).markApplied(cleanup?.proposal.id ?? "", {
       workspace_id: workspaceId,
-      actor: "operator",
+      signer: operator(workspaceId).signer,
     });
 
     expect(applied.status).toBe("applied");
@@ -377,7 +395,10 @@ describe("M1 reversible apply — markApplied integration", () => {
     new OrgControlService(database).pauseApply(workspaceId, { actor: "operator" });
 
     expect(() =>
-      service.markApplied(proposal.id, { workspace_id: workspaceId, actor: "operator" }),
+      service.markApplied(proposal.id, {
+        workspace_id: workspaceId,
+        signer: operator(workspaceId).signer,
+      }),
     ).toThrow(OrgChangeApplyPausedError);
     expect(new OrgChangeProposalStore(database).get(proposal.id)?.status).toBe("approved");
   });
@@ -407,7 +428,7 @@ describe("truth-in-status for applier-less change types (#105)", () => {
 
     const acknowledged = new OrgChangeService(database).markApplied(proposalId, {
       workspace_id: workspaceId,
-      actor: "operator",
+      signer: operator(workspaceId).signer,
     });
 
     expect(acknowledged.status).toBe("acknowledged");
@@ -434,10 +455,13 @@ describe("truth-in-status for applier-less change types (#105)", () => {
     const proposalId = approvedPolicyChange(workspaceId);
     const service = new OrgChangeService(database);
 
-    const first = service.markApplied(proposalId, { workspace_id: workspaceId, actor: "operator" });
+    const first = service.markApplied(proposalId, {
+      workspace_id: workspaceId,
+      signer: operator(workspaceId).signer,
+    });
     const replay = service.markApplied(proposalId, {
       workspace_id: workspaceId,
-      actor: "another_operator",
+      signer: operator(workspaceId, "Another Operator").signer,
     });
 
     expect(replay).toEqual(first);
@@ -451,7 +475,10 @@ describe("truth-in-status for applier-less change types (#105)", () => {
     const workspaceId = await seedWorkspace();
     const proposalId = approvedPolicyChange(workspaceId);
     const service = new OrgChangeService(database);
-    service.markApplied(proposalId, { workspace_id: workspaceId, actor: "operator" });
+    service.markApplied(proposalId, {
+      workspace_id: workspaceId,
+      signer: operator(workspaceId).signer,
+    });
 
     const withdrawn = service.withdraw(proposalId, {
       workspace_id: workspaceId,
@@ -473,7 +500,10 @@ describe("truth-in-status for applier-less change types (#105)", () => {
     const entry = makeEntry(workspaceId);
     const proposalId = approvedCleanup(workspaceId, [entry.id]);
     const service = new OrgChangeService(database);
-    service.markApplied(proposalId, { workspace_id: workspaceId, actor: "operator" });
+    service.markApplied(proposalId, {
+      workspace_id: workspaceId,
+      signer: operator(workspaceId).signer,
+    });
 
     expect(() =>
       service.withdraw(proposalId, { workspace_id: workspaceId, actor: "operator" }),
@@ -506,7 +536,7 @@ describe("M1 reversible apply — isolation, atomicity, and edge cases", () => {
     expect(() =>
       new OrgChangeApplyService(database).apply(proposalId, {
         workspace_id: workspaceA,
-        actor: "operator",
+        signer: operator(workspaceA).signer,
       }),
     ).toThrow(OrgChangeApplyError);
 
@@ -522,7 +552,7 @@ describe("M1 reversible apply — isolation, atomicity, and edge cases", () => {
     expect(() =>
       new OrgChangeApplyService(database).apply(proposalId, {
         workspace_id: workspaceId,
-        actor: "operator",
+        signer: operator(workspaceId).signer,
       }),
     ).toThrow(MemoryEntryStatusConflictError);
 
@@ -542,7 +572,7 @@ describe("M1 reversible apply — isolation, atomicity, and edge cases", () => {
     expect(() =>
       new OrgChangeApplyService(database).apply(proposalId, {
         workspace_id: workspaceId,
-        actor: "operator",
+        signer: operator(workspaceId).signer,
       }),
     ).toThrow(OrgChangeApplyError);
   });
@@ -554,7 +584,7 @@ describe("M1 reversible apply — isolation, atomicity, and edge cases", () => {
 
     const application = new OrgChangeApplyService(database).apply(proposalId, {
       workspace_id: workspaceId,
-      actor: "operator",
+      signer: operator(workspaceId).signer,
     });
 
     expect(application.targets).toHaveLength(1);
@@ -566,10 +596,19 @@ describe("M1 reversible apply — isolation, atomicity, and edge cases", () => {
     const entry = makeEntry(workspaceId);
     const proposalId = approvedCleanup(workspaceId, [entry.id]);
     const service = new OrgChangeApplyService(database);
-    const application = service.apply(proposalId, { workspace_id: workspaceId, actor: "operator" });
+    const application = service.apply(proposalId, {
+      workspace_id: workspaceId,
+      signer: operator(workspaceId).signer,
+    });
 
-    const first = service.revert(application.id, { workspace_id: workspaceId, actor: "operator" });
-    const second = service.revert(application.id, { workspace_id: workspaceId, actor: "operator" });
+    const first = service.revert(application.id, {
+      workspace_id: workspaceId,
+      signer: operator(workspaceId).signer,
+    });
+    const second = service.revert(application.id, {
+      workspace_id: workspaceId,
+      signer: operator(workspaceId).signer,
+    });
 
     expect(second).toEqual(first);
     expect(eventKinds(workspaceId).filter((kind) => kind === "org_change.reverted")).toHaveLength(

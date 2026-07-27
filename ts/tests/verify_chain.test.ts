@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -152,5 +152,37 @@ describe("cli verify-chain", () => {
     };
     expect(report.ok).toBe(false);
     expect(report.workspaces[0]?.verification.broken_at).toBe(row.id);
+  });
+
+  it("opens the database read-only: journal mode and sidecar files are untouched", async () => {
+    expect(await runCli(["init"], { dbPath, write: () => {} })).toBe(0);
+
+    // Pre-existing state the verifier must preserve exactly: a database whose
+    // journal mode is NOT wal. The old writable open ran journal_mode = WAL in
+    // its constructor, persistently flipping this and creating sidecars.
+    const flip = new Database(dbPath);
+    flip.connection.pragma("journal_mode = DELETE");
+    flip.close();
+
+    const journalMode = (): unknown => {
+      const probe = new Database(dbPath, { readonly: true });
+      try {
+        return probe.connection.pragma("journal_mode", { simple: true });
+      } finally {
+        probe.close();
+      }
+    };
+    expect(journalMode()).toBe("delete");
+    expect(existsSync(`${dbPath}-wal`)).toBe(false);
+    expect(existsSync(`${dbPath}-shm`)).toBe(false);
+
+    const lines: string[] = [];
+    const code = await runCli(["verify-chain"], { dbPath, write: (m) => lines.push(m) });
+    expect(code).toBe(0);
+    expect((JSON.parse(lines.at(-1) ?? "{}") as { ok: boolean }).ok).toBe(true);
+
+    expect(journalMode()).toBe("delete");
+    expect(existsSync(`${dbPath}-wal`)).toBe(false);
+    expect(existsSync(`${dbPath}-shm`)).toBe(false);
   });
 });

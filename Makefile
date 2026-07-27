@@ -2,7 +2,7 @@ NPM ?= npm
 
 .DEFAULT_GOAL := check
 
-.PHONY: install lint format typecheck test check api demo demo-approve demo-deny verify-chain console clean
+.PHONY: install lint format typecheck test check api demo demo-approve demo-deny verify-chain console keys clean
 
 install:
 	$(NPM) install
@@ -36,6 +36,9 @@ demo-deny:
 
 verify-chain:
 	$(NPM) run verify-chain
+
+keys:
+	$(NPM) run keys
 
 console:
 	$(NPM) run console

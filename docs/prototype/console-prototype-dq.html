@@ -1,0 +1,1292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Northwind — OpenMAO Decision-Quality Console</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+:root {
+  color-scheme: light;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --r-xs: 3px; --r-sm: 4px; --r: 6px; --r-md: 8px; --r-lg: 12px; --r-pill: 999px;
+  --shadow-sm: 0 1px 3px rgba(16,32,28,.07), 0 1px 2px rgba(16,32,28,.04);
+  --shadow-lg: 0 12px 32px rgba(16,32,28,.12), 0 2px 8px rgba(16,32,28,.06);
+  --ease: cubic-bezier(.2,0,0,1);
+  --dur-fast: 110ms; --dur: 180ms;
+  --bg: #ffffff;
+  --surface-1: #f6f8f7; --surface-2: #eef2f0; --surface-3: #e6ebe8;
+  --fg-1: #16201d; --fg-2: #5b6b64; --fg-3: #8a988f; --fg-on-accent: #ffffff;
+  --line: #d8e0dc; --line-strong: #c3cdc8;
+  --accent: #0c6b58; --accent-hover: #0a5849; --accent-press: #084536;
+  --accent-weak: #e3efe9; --accent-weak-line: #bcdccf;
+  --danger: #9f2f2f; --danger-hover: #842626;
+  --focus-ring: 0 0 0 3px rgba(12,107,88,.30);
+  --terminal-bg: #101716; --terminal-fg: #f4f7f6; --terminal-muted: #8fa39b;
+  --state-neutral-fg: #5b6b64; --state-neutral-bg: #eef2f0; --state-neutral-line: #d3dbd7;
+  --state-info-fg: #2b5c86; --state-info-bg: #e7f0f8; --state-info-line: #c3d9ec;
+  --state-pending-fg: #8a5a00; --state-pending-bg: #faf0d7; --state-pending-line: #ecdba8;
+  --state-success-fg: #0c6b58; --state-success-bg: #e3efe9; --state-success-line: #bcdccf;
+  --state-danger-fg: #9f2f2f; --state-danger-bg: #f6e4e2; --state-danger-line: #e8c4c0;
+  --autonomy-advisory: #8a988f; --autonomy-supervised: #2f8f74;
+  --autonomy-bounded: #0c6b58; --autonomy-board: #0a4a3c;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0c1211; --surface-1: #131b19; --surface-2: #1a2422; --surface-3: #212d2a;
+  --fg-1: #eef2f0; --fg-2: #9aa8a1; --fg-3: #6b7a73; --fg-on-accent: #07140f;
+  --line: #25302c; --line-strong: #33403b;
+  --accent: #2fa98a; --accent-hover: #45b89b; --accent-press: #57c4a8;
+  --accent-weak: #122520; --accent-weak-line: #234a3f;
+  --danger: #df6f6b; --danger-hover: #e88884;
+  --focus-ring: 0 0 0 3px rgba(47,169,138,.34);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.5); --shadow-lg: 0 16px 40px rgba(0,0,0,.6);
+  --state-neutral-fg: #9aa8a1; --state-neutral-bg: #1a2422; --state-neutral-line: #2b3733;
+  --state-info-fg: #7db4e0; --state-info-bg: #112330; --state-info-line: #294a5e;
+  --state-pending-fg: #dba94a; --state-pending-bg: #271f0f; --state-pending-line: #4a3d1c;
+  --state-success-fg: #46b89a; --state-success-bg: #122520; --state-success-line: #234a3f;
+  --state-danger-fg: #e08a86; --state-danger-bg: #271717; --state-danger-line: #4d2b29;
+  --autonomy-advisory: #7b8b83; --autonomy-supervised: #34a787;
+  --autonomy-bounded: #2fa98a; --autonomy-board: #58c9ad;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{color:var(--fg-1);background:var(--bg);font-family:var(--font-sans);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;min-height:100vh}
+h1,h2,h3,h4,p,button,input,select,textarea{font-family:inherit}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:36px;padding:0 14px;font-size:13.5px;font-weight:500;border-radius:var(--r);border:1px solid var(--line);background:var(--bg);color:var(--fg-1);cursor:pointer;white-space:nowrap;transition:border-color var(--dur) var(--ease),color var(--dur) var(--ease),background var(--dur) var(--ease);text-decoration:none}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.btn:disabled{opacity:.55;cursor:default;pointer-events:none}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--fg-on-accent)}
+.btn-primary:hover{background:var(--accent-hover);border-color:var(--accent-hover);color:var(--fg-on-accent)}
+.btn-danger{border-color:var(--state-danger-line);color:var(--danger)}
+.btn-danger:hover{background:var(--state-danger-bg);border-color:var(--danger)}
+.btn-ghost{background:transparent;border-color:transparent;color:var(--fg-2)}
+.btn-ghost:hover{background:var(--surface-2);color:var(--fg-1);border-color:transparent}
+.btn-sm{min-height:28px;padding:0 10px;font-size:12.5px}
+.btn-icon{width:32px;min-height:32px;padding:0}
+.btn-icon svg{width:16px;height:16px}
+
+.input{min-height:36px;width:100%;padding:0 11px;font-family:var(--font-sans);font-size:13px;color:var(--fg-1);background:var(--bg);border:1px solid var(--line);border-radius:var(--r);transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
+.input::placeholder{color:var(--fg-3)}
+.input:focus{outline:none;border-color:var(--accent);box-shadow:var(--focus-ring)}
+textarea.input{min-height:72px;padding:9px 11px;resize:vertical;line-height:1.5}
+select.input{cursor:pointer}
+.form-row{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
+.form-row label{font-size:12.5px;font-weight:500;color:var(--fg-2)}
+.form-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+
+.badge{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;font-family:var(--font-mono);font-size:11.5px;font-weight:500;border-radius:var(--r-pill);border:1px solid;white-space:nowrap}
+.badge .bdot{width:6px;height:6px;border-radius:999px;background:currentColor;flex:none}
+.badge-neutral{color:var(--state-neutral-fg);background:var(--state-neutral-bg);border-color:var(--state-neutral-line)}
+.badge-info{color:var(--state-info-fg);background:var(--state-info-bg);border-color:var(--state-info-line)}
+.badge-pending{color:var(--state-pending-fg);background:var(--state-pending-bg);border-color:var(--state-pending-line)}
+.badge-success{color:var(--state-success-fg);background:var(--state-success-bg);border-color:var(--state-success-line)}
+.badge-danger{color:var(--state-danger-fg);background:var(--state-danger-bg);border-color:var(--state-danger-line)}
+.tag{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.02em;white-space:nowrap;border-radius:var(--r-sm);border:1px solid var(--line);color:var(--fg-2);background:var(--surface-1)}
+.tag-pending{color:var(--state-pending-fg);border-color:var(--state-pending-line);background:var(--state-pending-bg)}
+.tag-danger{color:var(--state-danger-fg);border-color:var(--state-danger-line);background:var(--state-danger-bg)}
+.tag-success{color:var(--state-success-fg);border-color:var(--state-success-line);background:var(--state-success-bg)}
+.apill{display:inline-flex;align-items:center;height:22px;padding:0 10px;border-radius:var(--r-pill);font-family:var(--font-mono);font-size:11px;font-weight:500;color:#fff;white-space:nowrap}
+.apill[data-level="advisory"]{background:var(--autonomy-advisory)}
+.apill[data-level="supervised"]{background:var(--autonomy-supervised)}
+.apill[data-level="bounded"]{background:var(--autonomy-bounded)}
+.apill[data-level="board-governed"]{background:var(--autonomy-board)}
+
+.console{min-height:100vh;display:flex;flex-direction:column}
+.con-header{display:flex;align-items:center;gap:16px;padding:0 20px;height:52px;border-bottom:1px solid var(--line);flex-shrink:0;background:var(--bg)}
+.con-brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit;cursor:pointer}
+.brand-mark{width:28px;height:28px;background:var(--accent);border-radius:var(--r-sm);display:flex;align-items:center;justify-content:center;flex:none}
+.brand-mark svg{width:16px;height:16px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.con-brand .bname{font-size:15px;font-weight:600;letter-spacing:-0.01em}
+.con-brand .bkicker{font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--fg-3)}
+.con-org{display:flex;align-items:center;gap:8px;padding:0 12px;border-left:1px solid var(--line)}
+.con-org .orgname{font-size:13px;font-weight:500;color:var(--fg-2)}
+.con-toolbar{margin-left:auto;display:flex;align-items:center;gap:8px}
+
+.con-main{display:grid;grid-template-columns:212px 1fr;flex:1;overflow:hidden;height:calc(100vh - 52px)}
+.con-nav{border-right:1px solid var(--line);background:var(--surface-1);padding:10px 8px;display:flex;flex-direction:column;gap:1px;overflow-y:auto;flex-shrink:0}
+.navcap{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);padding:10px 10px 4px}
+.navbtn{display:flex;align-items:center;gap:9px;width:100%;min-height:33px;padding:0 10px;border:1px solid transparent;border-radius:var(--r-sm);background:transparent;font-family:var(--font-sans);font-size:13px;color:var(--fg-2);cursor:pointer;text-align:left;transition:all var(--dur-fast) var(--ease)}
+.navbtn:hover{background:var(--surface-2);color:var(--fg-1)}
+.navbtn.active{background:var(--accent-weak);color:var(--accent);border-color:var(--accent-weak-line);font-weight:500}
+.navbtn .ico{display:inline-flex;width:16px;height:16px;flex:none}
+.navbtn .ico svg{width:16px;height:16px}
+.nbadge{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:var(--r-pill);background:var(--accent);color:var(--fg-on-accent);font-size:10px;font-family:var(--font-mono);font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+.nbadge.warn{background:var(--state-pending-fg)}
+.nbadge.crit{background:var(--danger)}
+
+.con-section{padding:24px 28px;overflow-y:auto;min-width:0;flex:1}
+.section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:22px}
+.section-head h2{font-size:21px;font-weight:600;letter-spacing:-0.02em;line-height:1.1}
+.section-head .sub{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-3);margin-top:3px}
+.section-actions{display:flex;gap:8px;flex-shrink:0;align-items:center}
+
+.panel{border:1px solid var(--line);border-radius:var(--r-md);background:var(--bg);overflow:hidden;margin-bottom:16px}
+.panel-head{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px}
+.ph-title{font-size:13px;font-weight:600}
+.ph-sub{font-family:var(--font-mono);font-size:11px;color:var(--fg-3)}
+.panel-body{padding:16px}
+
+.table{width:100%;border-collapse:collapse;font-size:13.5px}
+.table th{font-family:var(--font-mono);font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
+.table td{padding:11px 10px;border-bottom:1px solid var(--line);color:var(--fg-1);vertical-align:middle}
+.table tr:last-child td{border-bottom:0}
+.table tbody tr{transition:background var(--dur-fast) var(--ease);cursor:pointer}
+.table tbody tr:hover{background:var(--surface-1)}
+.table .mono{font-family:var(--font-mono);font-size:12px;color:var(--fg-2)}
+.table th:first-child,.table td:first-child{padding-left:16px}
+.table th:last-child,.table td:last-child{padding-right:16px}
+
+.kvlist{display:flex;flex-direction:column}
+.kvrow{display:flex;gap:14px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;align-items:flex-start}
+.kvrow:last-child{border-bottom:0}
+.kk{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-3);width:150px;flex:none;padding-top:2px}
+.vv{color:var(--fg-1);min-width:0;overflow-wrap:anywhere;display:flex;align-items:center;gap:6px;flex-wrap:wrap;line-height:1.5}
+
+.tl{position:relative;padding-left:22px}
+.tl::before{content:"";position:absolute;left:5px;top:6px;bottom:6px;width:2px;background:var(--line)}
+.tl-ev{position:relative;padding:6px 0;display:flex;gap:12px;align-items:baseline}
+.tl-ev::before{content:"";position:absolute;left:-21px;top:11px;width:8px;height:8px;border-radius:999px;background:var(--bg);border:2px solid var(--fg-3)}
+.tl-ev.go::before{border-color:var(--accent)}
+.tl-ev.warn::before{border-color:var(--state-pending-fg)}
+.tl-ev.err::before{border-color:var(--danger)}
+.tl-time{font-family:var(--font-mono);font-size:11px;color:var(--fg-3);width:48px;flex:none}
+.tl-kind{font-family:var(--font-mono);font-size:12.5px;color:var(--fg-1);flex:1;line-height:1.4}
+.tl-actor{font-family:var(--font-mono);font-size:11px;color:var(--fg-3)}
+
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(8px);background:var(--fg-1);color:var(--bg);font-size:13px;font-family:var(--font-mono);padding:9px 16px;border-radius:var(--r);box-shadow:var(--shadow-lg);opacity:0;pointer-events:none;transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease);z-index:200;white-space:nowrap;max-width:90vw}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.48);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:56px 16px 32px;overflow-y:auto}
+.modal-backdrop.hidden{display:none}
+.modal{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-lg);width:100%;max-width:620px;overflow:hidden}
+.modal-head{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:16px}
+.modal-head h3{font-size:16px;font-weight:600;letter-spacing:-0.01em}
+.modal-body{padding:20px}
+.modal-foot{padding:14px 20px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+
+/* ── Decision-quality primitives ───────────────────────────────── */
+/* delta badge: the signed expected-vs-actual gap */
+.delta{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 10px;border-radius:var(--r-pill);font-family:var(--font-mono);font-size:12.5px;font-weight:600;border:1px solid;font-variant-numeric:tabular-nums;white-space:nowrap}
+.delta.hit{color:var(--state-success-fg);background:var(--state-success-bg);border-color:var(--state-success-line)}
+.delta.miss{color:var(--state-danger-fg);background:var(--state-danger-bg);border-color:var(--state-danger-line)}
+.delta.pending{color:var(--state-pending-fg);background:var(--state-pending-bg);border-color:var(--state-pending-line)}
+.delta svg{width:13px;height:13px}
+
+/* DQ tile grid for the pulse */
+.dqgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:6px}
+.dqtile{border:1px solid var(--line);border-radius:var(--r-md);padding:15px 16px;background:var(--surface-1);position:relative;display:flex;flex-direction:column;gap:3px;cursor:pointer;transition:border-color var(--dur-fast) var(--ease),box-shadow var(--dur-fast) var(--ease)}
+.dqtile:hover{border-color:var(--accent);box-shadow:var(--shadow-sm)}
+.dqtile.flag{border-left:3px solid var(--state-pending-fg)}
+.dqtile.crit{border-left:3px solid var(--danger)}
+.dqt-k{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--fg-3);display:flex;align-items:center;gap:6px}
+.dqt-k svg{width:13px;height:13px;flex:none}
+.dqt-v{font-size:25px;font-weight:600;letter-spacing:-0.02em;font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:7px}
+.dqt-trend{font-family:var(--font-mono);font-size:12px;font-weight:500}
+.dqt-trend.up{color:var(--state-success-fg)} .dqt-trend.down{color:var(--state-success-fg)} .dqt-trend.bad{color:var(--state-danger-fg)}
+.dqt-sub{font-size:12px;color:var(--fg-2);line-height:1.4}
+
+/* trend sparkline */
+.spark{display:inline-flex;align-items:flex-end;gap:2px;height:18px}
+.spark i{width:4px;background:var(--accent);border-radius:1px;opacity:.55;display:block}
+.spark.down i{background:var(--state-success-fg)}
+.spark.bad i{background:var(--state-danger-fg)}
+
+/* triage / judgment list */
+.home-grid{display:grid;grid-template-columns:1fr 312px;gap:16px;align-items:start}
+.triage-list{display:flex;flex-direction:column;gap:8px}
+.triage-item{border:1px solid var(--line);border-radius:var(--r-md);padding:13px 15px;background:var(--bg);display:flex;gap:13px;align-items:flex-start;cursor:pointer;transition:border-color var(--dur-fast) var(--ease),box-shadow var(--dur-fast) var(--ease)}
+.triage-item:hover{border-color:var(--accent);box-shadow:var(--shadow-sm)}
+.triage-item.urgent{border-left:3px solid var(--state-pending-fg)}
+.triage-item.critical{border-left:3px solid var(--danger)}
+.triage-icon{width:32px;height:32px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;flex:none}
+.triage-icon svg{width:15px;height:15px}
+.triage-icon.tap{background:var(--state-pending-bg)} .triage-icon.tap svg{stroke:var(--state-pending-fg)}
+.triage-icon.tbl{background:var(--state-danger-bg)} .triage-icon.tbl svg{stroke:var(--state-danger-fg)}
+.triage-icon.tkn{background:var(--accent-weak)} .triage-icon.tkn svg{stroke:var(--accent)}
+.triage-icon.tco{background:var(--state-info-bg)} .triage-icon.tco svg{stroke:var(--state-info-fg)}
+.tt{font-size:13.5px;font-weight:500;margin-bottom:2px}
+.ts{font-size:12px;color:var(--fg-2);line-height:1.4}
+.triage-cta{margin-left:auto;flex:none;align-self:center}
+
+.pulse-section{display:flex;flex-direction:column;gap:12px}
+.pulse-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;gap:10px}
+.pulse-item:last-child{border-bottom:0}
+.pulse-label{color:var(--fg-2)}
+.pulse-value{font-weight:500;font-variant-numeric:tabular-nums}
+
+/* drift banner */
+.drift-banner{display:flex;align-items:center;gap:11px;padding:12px 15px;margin-bottom:16px;background:var(--state-pending-bg);border:1px solid var(--state-pending-line);border-radius:var(--r-md);color:var(--state-pending-fg);font-size:13px;line-height:1.4}
+.drift-banner svg{width:17px;height:17px;flex:none}
+.drift-banner .db-cta{margin-left:auto;flex:none}
+
+/* expected vs actual block */
+.eva{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;margin:0}
+.eva-row{display:grid;grid-template-columns:1fr 1fr 132px;gap:0}
+.eva-cell{padding:13px 15px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px}
+.eva-cell:last-child{border-right:0;justify-content:center;align-items:flex-start}
+.eva-k{font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.eva-v{font-size:14px;font-weight:500;line-height:1.35}
+.eva-v.exp{color:var(--fg-2)}
+.eva.hit{background:var(--state-success-bg)} .eva.miss{background:var(--state-danger-bg)} .eva.pending{background:var(--state-pending-bg)}
+.eva.hit .eva-cell,.eva.miss .eva-cell,.eva.pending .eva-cell{background:var(--bg)}
+.eva.hit{border-color:var(--state-success-line)} .eva.miss{border-color:var(--state-danger-line)} .eva.pending{border-color:var(--state-pending-line)}
+
+/* decision feed rows */
+.dfeed{display:flex;flex-direction:column}
+.drow{display:grid;grid-template-columns:48px 1fr auto;gap:14px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line);cursor:pointer;transition:background var(--dur-fast) var(--ease)}
+.drow:last-child{border-bottom:0}
+.drow:hover{background:var(--surface-1)}
+.drow .d-av{width:34px;height:34px;border-radius:var(--r-md);background:var(--accent-weak);display:flex;align-items:center;justify-content:center;font-size:16px;flex:none}
+.drow .d-id{font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);margin-bottom:2px}
+.drow .d-intent{font-size:13.5px;font-weight:500;line-height:1.35;margin-bottom:5px}
+.drow .d-flow{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-2);display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.drow .d-flow .arr{color:var(--fg-3)}
+.drow .d-flow .pend{color:var(--state-pending-fg)}
+.drow .d-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
+.conf-mini{font-family:var(--font-mono);font-size:11px;color:var(--fg-3)}
+/* altitude reference — ties a decision to the higher-altitude commitment it belongs to */
+.from-ref{display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 9px;border-radius:var(--r-pill);border:1px solid var(--line);background:var(--surface-1);font-family:var(--font-mono);font-size:10.5px;color:var(--fg-2);white-space:nowrap;max-width:100%}
+.from-ref svg{width:11px;height:11px;flex:none;stroke:var(--fg-3)}
+.from-ref .fr-kind{color:var(--fg-3)}
+.from-ref .fr-ref{color:var(--accent)}
+.from-ref .fr-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+
+/* filter tabs */
+.stabs{display:flex;gap:2px;padding:3px;background:var(--surface-2);border-radius:var(--r-md);width:fit-content}
+.stab{padding:5px 14px;border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;border:none;background:transparent;color:var(--fg-2);transition:background var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease)}
+.stab.active{background:var(--bg);color:var(--fg-1);box-shadow:var(--shadow-sm)}
+
+/* options list (decision detail) */
+.optlist{display:flex;flex-direction:column;gap:8px}
+.opt{display:flex;align-items:center;gap:11px;padding:11px 13px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-1);font-size:13px}
+.opt.chosen{border-color:var(--accent);background:var(--accent-weak);border-width:1.5px}
+.opt .opt-mark{width:18px;height:18px;border-radius:999px;border:2px solid var(--line-strong);flex:none;display:flex;align-items:center;justify-content:center}
+.opt.chosen .opt-mark{border-color:var(--accent);background:var(--accent)}
+.opt.chosen .opt-mark svg{width:11px;height:11px;stroke:#fff}
+.opt-name{flex:1;font-weight:500}
+.opt.chosen .opt-name{color:var(--accent)}
+.opt-tag{font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3)}
+
+/* evidence drawer (the demoted raw trace) */
+.drawer{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;margin-top:4px}
+.drawer-hd{padding:11px 15px;display:flex;align-items:center;gap:10px;cursor:pointer;background:var(--surface-1);user-select:none}
+.drawer-hd:hover{background:var(--surface-2)}
+.drawer-hd .dh-ico{width:14px;height:14px;color:var(--fg-3);transition:transform var(--dur) var(--ease)}
+.drawer.open .dh-ico{transform:rotate(90deg)}
+.drawer-hd .dh-t{font-size:12.5px;font-weight:500;color:var(--fg-2)}
+.drawer-hd .dh-sub{font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);margin-left:auto}
+.drawer-body{display:none;border-top:1px solid var(--line);background:var(--terminal-bg)}
+.drawer.open .drawer-body{display:block}
+.drawer-body .raw{font-family:var(--font-mono);font-size:11.5px;line-height:1.7;color:var(--terminal-fg);padding:13px 15px}
+.drawer-body .raw .rt{color:var(--terminal-muted);width:52px;display:inline-block;flex:none}
+.drawer-body .raw .ra{color:var(--accent)}
+.drawer-body .raw div{display:flex;gap:10px;padding:1px 0}
+
+.rationale{font-size:13px;color:var(--fg-2);line-height:1.55;border-left:2px solid var(--accent-weak-line);padding-left:12px;margin:2px 0}
+.learned-box{border:1px solid var(--accent-weak-line);background:var(--accent-weak);border-radius:var(--r-md);padding:13px 15px;display:flex;gap:11px;align-items:flex-start}
+.learned-box svg{width:16px;height:16px;stroke:var(--accent);flex:none;margin-top:1px}
+.learned-box .lb-t{font-size:13px;color:var(--fg-1);line-height:1.5}
+.learned-box .lb-k{font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-bottom:3px}
+.meta-line{font-family:var(--font-mono);font-size:11px;color:var(--fg-3)}
+.detail-grid{display:grid;grid-template-columns:1fr 296px;gap:16px;align-items:start}
+
+/* ── Agents: calibration cards ─────────────────────────────────── */
+.agent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+.cal-card{border:1px solid var(--line);border-radius:var(--r-md);background:var(--bg);padding:17px;cursor:pointer;transition:border-color var(--dur-fast) var(--ease),box-shadow var(--dur-fast) var(--ease)}
+.cal-card:hover{border-color:var(--accent);box-shadow:var(--shadow-sm)}
+.cal-card.over{border-left:3px solid var(--danger)}
+.cal-card.under{border-left:3px solid var(--state-info-fg)}
+.cal-card.well{border-left:3px solid var(--accent)}
+.cc-hd{display:flex;align-items:center;gap:11px;margin-bottom:13px}
+.cc-av{width:38px;height:38px;border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;font-size:17px;flex:none;background:var(--accent-weak);color:var(--accent)}
+.cc-name{font-size:14px;font-weight:600}
+.cc-role{font-size:12px;color:var(--fg-2);margin-top:1px}
+.cc-cal{margin-left:auto;flex:none}
+.cal-pill{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border-radius:var(--r-pill);font-family:var(--font-mono);font-size:10.5px;font-weight:600;border:1px solid;white-space:nowrap}
+.cal-pill.well{color:var(--state-success-fg);background:var(--state-success-bg);border-color:var(--state-success-line)}
+.cal-pill.over{color:var(--state-danger-fg);background:var(--state-danger-bg);border-color:var(--state-danger-line)}
+.cal-pill.under{color:var(--state-info-fg);background:var(--state-info-bg);border-color:var(--state-info-line)}
+/* calibration bar: confidence vs actual */
+.calbar{margin:4px 0 13px}
+.calbar-row{display:flex;align-items:center;gap:9px;margin-bottom:7px}
+.calbar-lab{font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);width:74px;flex:none}
+.calbar-track{flex:1;height:9px;background:var(--surface-3);border-radius:var(--r-pill);overflow:hidden;position:relative}
+.calbar-fill{height:100%;border-radius:var(--r-pill)}
+.calbar-fill.conf{background:var(--fg-3)}
+.calbar-fill.act{background:var(--accent)}
+.calbar-val{font-family:var(--font-mono);font-size:11px;font-weight:600;width:34px;flex:none;text-align:right;font-variant-numeric:tabular-nums}
+.cc-stats{display:flex;gap:0;padding-top:12px;border-top:1px solid var(--line)}
+.cc-stat{flex:1;display:flex;flex-direction:column;gap:2px;padding-right:10px}
+.cc-stat .csv{font-size:16px;font-weight:600;letter-spacing:-0.01em;font-variant-numeric:tabular-nums}
+.cc-stat .csk{font-family:var(--font-mono);font-size:9.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.03em}
+.cc-gap{font-size:12px;color:var(--fg-2);line-height:1.45;margin:11px 0 0;border-top:1px solid var(--line);padding-top:11px}
+
+/* ── Governance: dial refueled on quality ──────────────────────── */
+.dial-box{border:1px solid var(--line);border-radius:var(--r-lg);padding:22px;margin-bottom:16px;background:var(--bg)}
+.dial-levels{display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;color:var(--fg-3);margin:14px 0 4px}
+.dial-track{height:8px;background:var(--surface-3);border-radius:var(--r-pill);overflow:hidden;margin-bottom:18px}
+.dial-fill{height:100%;border-radius:var(--r-pill);background:var(--autonomy-supervised);transition:width .4s var(--ease)}
+.evidence-list{display:flex;flex-direction:column;gap:7px}
+.ev-item{display:flex;align-items:flex-start;gap:9px;padding:9px 11px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface-1);font-size:12.5px}
+.ev-item .ev-ico{width:14px;height:14px;flex:none;margin-top:1px;stroke:var(--state-success-fg);fill:none}
+.ev-item.bad .ev-ico{stroke:var(--state-danger-fg)}
+.ev-item .ev-text{line-height:1.4}
+.ev-item .ev-meta{font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);margin-top:2px}
+.gov-card{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;margin-bottom:14px}
+.gov-card.ready{border-left:3px solid var(--accent)}
+.gov-card.held{border-left:3px solid var(--danger)}
+.gov-hd{padding:14px 16px;display:flex;gap:12px;align-items:center;border-bottom:1px solid var(--line)}
+.gov-av{width:36px;height:36px;border-radius:var(--r-md);background:var(--accent-weak);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:16px;flex:none}
+.gov-name{font-size:14px;font-weight:600}
+.gov-tr{font-size:12.5px;color:var(--fg-2);margin-top:1px}
+.gov-verdict{margin-left:auto;flex:none;text-align:right}
+.gov-body{padding:14px 16px}
+.qbar{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+.qmetric{border:1px solid var(--line);border-radius:var(--r);padding:9px 11px;background:var(--surface-1)}
+.qmetric .qmv{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:5px}
+.qmetric .qmk{font-family:var(--font-mono);font-size:9.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.03em;margin-top:2px}
+.qmetric.good .qmv{color:var(--state-success-fg)} .qmetric.bad .qmv{color:var(--state-danger-fg)}
+.gov-acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+/* approval as decision record */
+.ap-pack{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;margin-bottom:14px}
+.ap-pack.urgent{border-left:3px solid var(--state-pending-fg)}
+.ap-hd{padding:13px 15px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:flex-start}
+.ap-icon{width:34px;height:34px;border-radius:var(--r);background:var(--state-pending-bg);display:flex;align-items:center;justify-content:center;flex:none}
+.ap-icon svg{width:16px;height:16px;stroke:var(--state-pending-fg)}
+.ap-title{font-size:14px;font-weight:600;margin-bottom:2px}
+.ap-meta{font-size:12px;color:var(--fg-2)}
+.ap-age{margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--fg-3);flex:none;padding-top:2px}
+.ap-ev{padding:13px 15px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.ap-ev-row{display:flex;gap:10px;font-size:12.5px;align-items:flex-start}
+.ap-ev-label{font-family:var(--font-mono);font-size:10.5px;color:var(--fg-3);width:92px;flex:none;padding-top:2px}
+.ap-ev-val{color:var(--fg-1);line-height:1.4}
+.ap-acts{padding:11px 15px;display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.ap-acts .spacer{flex:1}
+
+/* interventions feed */
+.iv-list{display:flex;flex-direction:column;gap:10px}
+.iv-item{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+.iv-item.human{border-left:3px solid var(--accent)}
+.iv-item.system{border-left:3px solid var(--state-info-fg)}
+.iv-hd{padding:13px 15px;display:flex;gap:11px;align-items:flex-start;border-bottom:1px solid var(--line)}
+.iv-ico{width:32px;height:32px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;flex:none}
+.iv-ico.human{background:var(--accent-weak)} .iv-ico.human svg{stroke:var(--accent)}
+.iv-ico.system{background:var(--state-info-bg)} .iv-ico.system svg{stroke:var(--state-info-fg)}
+.iv-ico svg{width:15px;height:15px}
+.iv-what{font-size:13.5px;font-weight:500;line-height:1.35;margin-bottom:3px}
+.iv-ctx{font-size:12px;color:var(--fg-2)}
+.iv-when{margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--fg-3);flex:none;padding-top:2px}
+.iv-body{padding:12px 15px;display:flex;flex-direction:column;gap:9px}
+.iv-rowx{display:flex;gap:10px;font-size:12.5px;align-items:flex-start}
+.iv-lab{font-family:var(--font-mono);font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--fg-3);width:84px;flex:none;padding-top:2px}
+.iv-val{color:var(--fg-1);line-height:1.45;min-width:0}
+.iv-fed{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;color:var(--accent);background:var(--accent-weak);border:1px solid var(--accent-weak-line);border-radius:var(--r-sm);padding:3px 8px}
+.iv-fed svg{width:12px;height:12px;stroke:var(--accent)}
+
+.callout{font-size:12.5px;color:var(--fg-2);line-height:1.5;background:var(--surface-1);border:1px solid var(--line);border-radius:var(--r-md);padding:12px 14px;margin-bottom:16px;display:flex;gap:10px;align-items:flex-start}
+.callout svg{width:15px;height:15px;flex:none;margin-top:1px;stroke:var(--fg-3)}
+.caphdr{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);margin:18px 0 9px}
+.caphdr:first-child{margin-top:0}
+
+@media(max-width:980px){
+  .con-main{grid-template-columns:1fr;height:auto}
+  .con-nav{border-right:0;border-bottom:1px solid var(--line);flex-direction:row;flex-wrap:wrap;padding:6px}
+  .navcap{width:100%;padding:5px 8px 1px}
+  .dqgrid{grid-template-columns:1fr 1fr}
+  .home-grid,.detail-grid{grid-template-columns:1fr}
+  .qbar{grid-template-columns:1fr 1fr}
+}
+@media(max-width:600px){
+  .dqgrid{grid-template-columns:1fr}
+  .eva-row{grid-template-columns:1fr}
+  .eva-cell{border-right:0;border-bottom:1px solid var(--line)}
+  .drow{grid-template-columns:1fr;gap:9px}
+  .drow .d-right{align-items:flex-start}
+}
+/* ── Chief of Staff command layer (verbatim chassis) ───────────── */
+.budget-pill{display:inline-flex;align-items:center;gap:8px;height:24px;padding:0 10px;border-radius:var(--r-pill);border:1px solid var(--line);background:var(--surface-1);font-family:var(--font-mono);font-size:11px;color:var(--fg-2);white-space:nowrap}
+.budget-pill .bp-bar{width:44px;height:5px;border-radius:9px;background:var(--surface-3);overflow:hidden}
+.budget-pill .bp-fill{display:block;height:100%;width:0;background:var(--accent);border-radius:9px;transition:width .5s var(--ease,ease)}
+#cos-btn{gap:7px}#cos-btn.on{border-color:var(--accent);color:var(--accent)}
+.cmdk-btn{font-family:var(--font-mono)}
+.cos-dock{position:fixed;top:0;right:0;height:100vh;width:432px;max-width:94vw;background:var(--bg);border-left:1px solid var(--line);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;transform:translateX(101%);transition:transform .26s cubic-bezier(.4,0,.1,1);z-index:60}
+.cos-dock.open{transform:translateX(0)}
+.cos-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 14px;border-bottom:1px solid var(--line)}
+.cos-id{display:flex;align-items:center;gap:10px}
+.cos-mark{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;background:var(--accent);color:#fff;font-family:var(--font-mono);font-size:10.5px;font-weight:600;flex:none}
+.cos-name{font-size:13px;font-weight:600}.cos-sub{font-family:var(--font-mono);font-size:10px;color:var(--fg-3)}
+.cos-body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+#cos-dock .cmsg{font-size:13px;line-height:1.5;max-width:92%}
+#cos-dock .cmsg.user{align-self:flex-end;background:var(--accent);color:#fff;padding:8px 12px;border-radius:12px 12px 3px 12px}
+#cos-dock .cmsg.cos{align-self:flex-start}
+#cos-dock .cmsg.cos .ctext{background:var(--surface-1);border:1px solid var(--line);padding:9px 12px;border-radius:12px 12px 12px 3px}
+#cos-dock .cmsg.card{align-self:stretch;max-width:100%}
+#cos-dock .acard{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;background:var(--bg)}
+#cos-dock .acard-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface-1);border-bottom:1px solid var(--line)}
+#cos-dock .acard-kick{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--fg-3)}
+#cos-dock .acard-title{font-size:13px;font-weight:600;padding:9px 12px 3px}
+#cos-dock .acard-rows{padding:2px 12px 10px;display:flex;flex-direction:column;gap:5px}
+#cos-dock .acard-row{display:flex;gap:10px;font-size:12px;align-items:baseline}
+#cos-dock .acard-row .ak{font-family:var(--font-mono);font-size:11px;color:var(--fg-3);width:74px;flex:none}
+#cos-dock .acard-row .av{color:var(--fg-1);min-width:0}
+#cos-dock .acard-foot{display:flex;align-items:center;gap:7px;padding:0 12px 11px;flex-wrap:wrap}
+#cos-dock .trace{font-family:var(--font-mono);font-size:10px;color:var(--terminal-muted);background:var(--terminal-bg);padding:6px 12px}
+#cos-dock .trace .tprompt{color:var(--accent)}#cos-dock .trace .top{color:var(--terminal-fg)}
+.cos-foot{border-top:1px solid var(--line);padding:11px 14px}
+#cos-dock .slashrow{display:flex;gap:6px;overflow-x:auto;padding-bottom:9px;scrollbar-width:thin}
+#cos-dock .chip{flex:none;height:26px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-pill);background:var(--surface-1);color:var(--fg-2);font-family:var(--font-mono);font-size:11px;cursor:pointer;white-space:nowrap}
+#cos-dock .chip:hover{border-color:var(--accent);color:var(--accent)}
+.cos-inputrow{display:flex;gap:7px;align-items:center}
+.cos-input{flex:1;height:38px;padding:0 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface-1);color:var(--fg-1);font-family:var(--font-sans);font-size:13px}
+.cos-input:focus{outline:none;border-color:var(--accent);background:var(--bg)}
+.cos-hint{font-family:var(--font-mono);font-size:9.5px;color:var(--fg-3);margin-top:7px;text-align:center}
+.cmdk-back{position:fixed;inset:0;background:rgba(8,16,14,.42);z-index:120;display:none;align-items:flex-start;justify-content:center;padding:86px 16px}
+.cmdk-back.open{display:flex}
+.cmdk{width:100%;max-width:560px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-lg);overflow:hidden}
+.cmdk-input{width:100%;height:52px;padding:0 18px;border:none;border-bottom:1px solid var(--line);background:transparent;color:var(--fg-1);font-family:var(--font-sans);font-size:15px}
+.cmdk-input:focus{outline:none}
+.cmdk-list{max-height:328px;overflow-y:auto;padding:6px}
+.cmdk-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--r);font-size:13.5px;color:var(--fg-1);cursor:pointer}
+.cmdk-item .ci-op{font-family:var(--font-mono);font-size:10px;color:var(--fg-3);margin-left:auto}
+.cmdk-item.sel{background:var(--accent-weak)}.cmdk-item.sel .ci-op{color:var(--accent)}
+.cmdk-hint{font-family:var(--font-mono);font-size:10px;color:var(--fg-3);padding:8px 14px;border-top:1px solid var(--line)}
+@media(max-width:720px){.cos-dock{width:100vw}}
+</style>
+</head>
+<body>
+<div class="console">
+
+<header class="con-header">
+  <div class="con-brand" onclick="nav('home')" tabindex="0" role="button" aria-label="Home">
+    <div class="brand-mark">
+      <svg viewBox="0 0 24 24"><path d="M12 3L3 8v8l9 5 9-5V8z"/><path d="M12 3v16M3 8l9 5 9-5"/></svg>
+    </div>
+    <div>
+      <div class="bname">OpenMAO</div>
+      <div class="bkicker">decision-quality console</div>
+    </div>
+  </div>
+  <div class="con-org">
+    <span class="orgname">Northwind</span>
+    <span class="apill" data-level="supervised" id="hdr-level">supervised</span>
+    <span class="budget-pill" id="budget-pill" title="Monthly budget"><span class="bp-bar"><span class="bp-fill" id="bp-fill"></span></span><span id="bp-text">$1,240 / $2,000</span></span>
+  </div>
+  <div class="con-toolbar">
+    <button class="btn btn-sm btn-ghost cmdk-btn" onclick="openCmdk()" aria-label="Command bar" title="Command bar (Cmd/Ctrl+K)">⌘K</button>
+    <button class="btn btn-sm" id="cos-btn" onclick="toggleCos()" aria-label="Open Chief of Staff">Chief of Staff</button>
+    <button class="btn btn-primary btn-sm" onclick="openNewTask()">+ New Task</button>
+    <button class="btn btn-icon btn-ghost" id="theme-btn" onclick="toggleTheme()" aria-label="Toggle theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+    </button>
+  </div>
+</header>
+
+<div class="con-main">
+  <nav class="con-nav" aria-label="Console navigation">
+    <button class="navbtn active" data-view="home" onclick="nav('home')">
+      <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
+      Pulse <span class="nbadge">4</span>
+    </button>
+    <div class="navcap">Decisions</div>
+    <button class="navbtn" data-view="decisions" onclick="nav('decisions')">
+      <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+      Decisions
+    </button>
+    <button class="navbtn" data-view="interventions" onclick="nav('interventions')">
+      <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span>
+      Interventions <span class="nbadge">3</span>
+    </button>
+    <div class="navcap">Org</div>
+    <button class="navbtn" data-view="agents" onclick="nav('agents')">
+      <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg></span>
+      Agents <span class="nbadge crit">1</span>
+    </button>
+    <button class="navbtn" data-view="governance" onclick="nav('governance')">
+      <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></span>
+      Governance <span class="nbadge warn">2</span>
+    </button>
+  </nav>
+
+  <section class="con-section" id="main-section">
+    <div id="view-root"></div>
+  </section>
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- NEW TASK MODAL -->
+<div class="modal-backdrop hidden" id="nt-modal" onclick="if(event.target===this)closeNewTask()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="nt-title">
+    <div class="modal-head">
+      <h3 id="nt-title">New Task</h3>
+      <button class="btn btn-icon btn-ghost" onclick="closeNewTask()" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="nt-body"></div>
+  </div>
+</div>
+
+<!-- DECISION DETAIL MODAL -->
+<div class="modal-backdrop hidden" id="dd-modal" onclick="if(event.target===this)closeDecision()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dd-mtitle">
+    <div class="modal-head">
+      <h3 id="dd-mtitle">Decision record</h3>
+      <button class="btn btn-icon btn-ghost" onclick="closeDecision()" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="dd-body" style="max-height:calc(100vh - 180px);overflow-y:auto"></div>
+  </div>
+</div>
+
+<!-- ── Chief of Staff dock ───────────────────────────────────────── -->
+<aside class="cos-dock" id="cos-dock" aria-label="Chief of Staff" aria-hidden="true">
+  <div class="cos-head">
+    <div class="cos-id"><span class="cos-mark">CoS</span><div><div class="cos-name">Chief of Staff</div><div class="cos-sub">judges decision quality · supervised</div></div></div>
+    <button class="btn btn-icon btn-ghost" onclick="toggleCos()" aria-label="Close Chief of Staff">✕</button>
+  </div>
+  <div class="cos-body" id="cos-body"></div>
+  <div class="cos-foot">
+    <div class="slashrow" id="slashrow"></div>
+    <div class="cos-inputrow">
+      <input class="cos-input" id="cos-input" placeholder="Ask about decisions, calibration, regret…" aria-label="Message the Chief of Staff" autocomplete="off" />
+      <button class="btn btn-primary btn-icon" id="cos-send" onclick="cosSend()" aria-label="Send">→</button>
+    </div>
+    <div class="cos-hint">Enter to send · every action maps to a governed operation</div>
+  </div>
+</aside>
+
+<!-- ── Command bar (Cmd/Ctrl+K) ──────────────────────────────────── -->
+<div class="cmdk-back" id="cmdk-back" onclick="if(event.target===this)closeCmdk()" aria-hidden="true">
+  <div class="cmdk" role="dialog" aria-label="Command bar">
+    <input class="cmdk-input" id="cmdk-input" oninput="renderCmdk(this.value)" placeholder="Type a command…  (review regressions, is anyone overconfident, can Ava widen…)" autocomplete="off" />
+    <div class="cmdk-list" id="cmdk-list"></div>
+    <div class="cmdk-hint">↑↓ navigate · Enter run · Esc close</div>
+  </div>
+</div>
+
+<script>
+/* ── SVG helpers ─────────────────────────────────────────────── */
+function si(d){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;display:inline-block;vertical-align:middle">'+d+'</svg>'}
+var I={
+  shield:si('<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>'),
+  alert:si('<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+  brain:si('<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/>'),
+  info:si('<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>'),
+  check:si('<polyline points="20 6 9 17 4 12"/>'),
+  x:si('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
+  steer:si('<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>'),
+  up:si('<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>'),
+  down:si('<path d="m19 12-7 7-7-7"/><path d="M12 5v14"/>'),
+  agent:si('<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>'),
+  target:si('<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>'),
+  scale:si('<path d="m16 16 3-8 3 8c-2 1.5-4 1.5-6 0Z"/><path d="m2 16 3-8 3 8c-2 1.5-4 1.5-6 0Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>'),
+  trend:si('<path d="M3 12h4l3 8 4-16 3 8h4"/>'),
+  arrowR:si('<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>'),
+  hand:si('<path d="M18 11V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 0 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>'),
+  layers:si('<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 12.5-9.17 4.17a2 2 0 0 1-1.66 0L2 12.5"/><path d="m22 17.5-9.17 4.17a2 2 0 0 1-1.66 0L2 17.5"/>'),
+};
+
+/* ── Mock data: decision-quality first-class objects ─────────── */
+var D={
+  /* agents carry calibration as the primary metric (not vanity success-rate) */
+  agents:[
+    {id:'scout',name:'Scout',role:'Research & Enrichment',emoji:'🔍',model:'claude-sonnet-4-6',level:'supervised',
+     conf:88,actual:71,cal:'over',gap:17,evahit:71,ivrate:18,regret:0.34,episodes:23,harmful:0,trend:[62,68,64,71,69,73,71],trendDir:'flat',
+     note:'Scout reports high confidence but lands below it on enrichment — the gap is widening on SMB accounts.'},
+    {id:'ava',name:'Ava',role:'Outreach & Email',emoji:'✉',model:'claude-sonnet-4-6',level:'supervised',
+     conf:82,actual:84,cal:'well',gap:2,evahit:84,ivrate:6,regret:0.08,episodes:18,harmful:0,trend:[78,80,79,83,82,85,84],trendDir:'up',
+     note:'Ava\'s confidence tracks her real outcomes within 2 points — the org can trust her self-reported certainty.'},
+    {id:'iris',name:'Iris',role:'Content & Copy',emoji:'✍',model:'claude-opus-4-8',level:'bounded',
+     conf:66,actual:90,cal:'under',gap:24,evahit:90,ivrate:9,regret:0.10,episodes:31,harmful:0,trend:[84,88,86,91,89,92,90],trendDir:'up',
+     note:'Iris under-rates herself by ~24 points. She passes QA far more often than her confidence implies — safe to lean on.'},
+    {id:'ledger',name:'Ledger',role:'Ops & Admin',emoji:'📊',model:'claude-haiku-4',level:'bounded',
+     conf:95,actual:96,cal:'well',gap:1,evahit:96,ivrate:2,regret:0.03,episodes:44,harmful:0,trend:[94,95,96,95,97,96,96],trendDir:'flat',
+     note:'Ledger is tight and boring in the best way — recurring ops land where promised with almost no intervention.'},
+    {id:'sentinel',name:'Sentinel',role:'Review & QA',emoji:'🛡',model:'claude-opus-4-8',level:'supervised',
+     conf:91,actual:93,cal:'well',gap:2,evahit:93,ivrate:4,regret:0.05,episodes:29,harmful:0,trend:[90,92,91,94,93,93,93],trendDir:'flat',
+     note:'Sentinel calibrates well as the org\'s reviewer — its pass/fail calls match downstream outcomes.'},
+  ],
+  /* DECISION RECORDS — the spine of the product */
+  decisions:[
+    {id:'D-114',agent:'Ava',emoji:'✉',intent:'Pick the subject-line angle for Q3 webinar invites',
+     from:{kind:'Task',ref:'TSK-204',label:'Q3 webinar outreach sequence'},
+     options:[{n:'Case-study-led',chosen:true,tag:'ratified ICP pattern'},{n:'Discount-led',tag:'off-brand'},{n:'Curiosity-gap',tag:'untested'}],
+     rationale:'Matches the ratified ICP pattern — case-study-led subject lines have out-performed every alternative in prior runs.',
+     confidence:82,expected:'Open-rate > 25%',actual:'31% open across 120 sends',delta:'+6',deltaUnit:'pts open-rate',status:'hit',cost:'$0 (copy only)',when:'2 days ago',
+     interventions:[],
+     learned:'Confirms the case-study-led pattern holds at 120-send scale — confidence well-placed.',
+     trace:[['09:31','memory.retrieved','ICP subject-line pattern (k1) loaded'],['09:31','llm.generate','3 candidate angles drafted'],['09:32','eval.score','case-study-led ranked highest vs ratified pattern'],['09:33','decision.commit','angle = case-study-led, conf 82%'],['11:48','outcome.observed','31% open-rate measured (n=120)']]},
+
+    {id:'D-118',agent:'Scout',emoji:'🔍',intent:'Choose the enrichment strategy for 200 ICP accounts',
+     from:{kind:'Task',ref:'TSK-211',label:'Enrich 200 ICP accounts'},
+     options:[{n:'Enrich all 200 via Apollo',chosen:true,tag:'fastest'},{n:'Sample 50 first',tag:'safer'},{n:'Manual-first',tag:'slowest'}],
+     rationale:'Prior Apollo runs returned a 94% match rate, so a full-batch enrichment looked efficient and low-risk.',
+     confidence:90,expected:'> 90% match, under $420',actual:'78% match, $400 spent, 44 low-value records',delta:'-12',deltaUnit:'pts match-rate',status:'miss',cost:'$400',when:'1 day ago',overconf:true,
+     interventions:[{ref:'IV-1'}],
+     learned:'Apollo match-rate collapses for sub-50-person orgs. New rule: sample-first for SMB ICP segments before committing a full batch.',
+     trace:[['12:10','task.started','enrichment strategy selection'],['12:11','memory.retrieved','prior Apollo match-rate 94% (k3)'],['12:12','eval.score','full-batch ranked over sample-first (conf 90%)'],['12:13','decision.commit','strategy = enrich all 200'],['12:15','approval.request','$400 Apollo spend (policy >$200)'],['12:41','human.intervene','operator paused + narrowed to ≤50/batch'],['14:02','outcome.observed','78% match, 44 low-value records flagged']]},
+
+    {id:'D-121',agent:'Iris',emoji:'✍',intent:'Choose the homepage hero message',
+     from:{kind:'Task',ref:'TSK-198',label:'Homepage messaging refresh'},
+     options:[{n:'Time-to-first-agent',chosen:true,tag:'value-led'},{n:'Feature-list',tag:'dense'},{n:'Social-proof',tag:'thin evidence'}],
+     rationale:'Leads with the clearest single value — how fast a new org gets its first agent working — over a feature list.',
+     confidence:65,expected:'Clearer value framing, passes Sentinel QA',actual:'pending — in QA review',delta:'pending',deltaUnit:'',status:'pending',cost:'$0 (copy only)',when:'4 hr ago',underconf:true,
+     interventions:[],
+     learned:'—',
+     trace:[['08:40','memory.retrieved','homepage messaging draft (k5)'],['08:42','llm.generate','3 hero variants drafted'],['08:55','eval.score','time-to-first-agent ranked highest, conf 65%'],['08:56','decision.commit','hero = time-to-first-agent (low confidence)'],['09:10','handoff','routed to Sentinel for QA']]},
+
+    {id:'D-109',agent:'Ledger',emoji:'📊',intent:'Run the weekly pipeline review (recurring)',
+     from:{kind:'Project',ref:'PRJ-12',label:'Weekly pipeline reporting'},
+     options:[{n:'Full pipeline sweep',chosen:true,tag:'standard'},{n:'Deltas only',tag:'lighter'}],
+     rationale:'Standard recurring sweep of all open pipeline stages, as configured. High confidence — this path is well-worn.',
+     confidence:95,expected:'Report delivered, all stages reconciled',actual:'Delivered on time, all stages reconciled',delta:'+0',deltaUnit:'on target',status:'hit',cost:'$3',when:'3 days ago',recurring:true,
+     interventions:[],
+     learned:'No new learning — recurring path performing exactly as expected (low regret).',
+     trace:[['07:00','task.started','weekly pipeline review'],['07:00','memory.retrieved','pipeline schema + last-week baseline'],['07:04','tool.notion','12 pipeline records reconciled'],['07:05','decision.commit','report = full sweep'],['07:06','outcome.observed','delivered, 0 discrepancies']]},
+  ],
+  /* INTERVENTIONS — human/system overrides as training data */
+  interventions:[
+    {id:'IV-1',who:'human',actor:'You',when:'1 day ago',decision:'D-118',
+     what:'Paused Scout mid-run and narrowed auto-enrichment to ≤ 50 records per batch',
+     ctx:'Scout · D-118 · enrichment strategy for 200 ICP accounts',
+     why:'$400 was about to buy a full 200-account batch on a strategy that turned out to be overconfident for SMB accounts.',
+     learned:'Apollo match-rate drops sharply for sub-50-person orgs; sample-first for SMB ICP.',
+     fedInto:'Scout auto-enrichment narrowed to ≤50/batch',type:'narrow autonomy'},
+    {id:'IV-2',who:'human',actor:'You',when:'2 days ago',decision:'D-114',
+     what:'Steered Ava mid-run to drop one over-aggressive 4th touch from the sequence',
+     ctx:'Ava · D-114 · Q3 webinar outreach sequence',
+     why:'The 4th touch read as pushy against the ratified tone guidance; better to keep the sequence on-brand.',
+     learned:'Cap aggressive follow-ups at 3 touches for warm ICP; tone matters more than touch count.',
+     fedInto:'Ava sequence template updated (max 3 assertive touches)',type:'steer'},
+    {id:'IV-3',who:'system',actor:'Policy engine',when:'1 day ago',decision:'D-118',
+     what:'Approval rejected on a $400 Apollo spend — became a standing memory',
+     ctx:'Scout · D-118 · spend > $200 gate',
+     why:'Budget had not been re-confirmed for the month before committing a large enrichment spend.',
+     learned:'Confirm remaining budget before any Apollo purchase over $200.',
+     fedInto:'New gate: confirm budget before Apollo spend',type:'override'},
+  ],
+  /* approvals shown as decision-records awaiting confirmation */
+  approvals:[
+    {id:'a1',title:'Confirm Q3 webinar send — 120 emails',agent:'Ava',decision:'D-114 (extends)',risk:'medium',age:'14 min ago',
+     intent:'Send the case-study-led webinar invites to 120 ICP contacts',
+     options:'send 120 now ✓ · stagger over 3 days · hold for re-QA',
+     expected:'Open-rate > 25% (D-114 measured 31% on the pilot batch)',
+     rev:'Staged — nothing sends until you confirm. Cancel stops all sends.',
+     track:'7 confirmed, 0 reversed (Ava · well-calibrated)'},
+    {id:'a2',title:'Confirm Apollo re-run — sampled 50 accounts',agent:'Scout',decision:'D-118 (revised)',risk:'high',age:'2 hr ago',
+     intent:'Re-run enrichment on a 50-account SMB sample after the D-118 miss',
+     options:'sample 50 first ✓ · skip SMB segment · manual-first',
+     expected:'Validate >90% match on the safer sample before any full batch',
+     rev:'API spend is irreversible once placed. Capped at $100 for the sample.',
+     track:'Revised after a miss — operator-narrowed path (Scout held at supervised)'},
+  ],
+};
+
+/* derived org-level decision-quality numbers */
+function decided(){return D.decisions.filter(function(d){return d.status!=='pending'})}
+function hits(){return D.decisions.filter(function(d){return d.status==='hit'})}
+function misses(){return D.decisions.filter(function(d){return d.status==='miss'})}
+function pending(){return D.decisions.filter(function(d){return d.status==='pending'})}
+
+/* ── State ──────────────────────────────────────────────────── */
+var cur='home', decFilter='all', ntStep=1, ntData={}, timer=null;
+
+/* ── Helpers ────────────────────────────────────────────────── */
+function $id(id){return document.getElementById(id)}
+function flash(m){
+  var t=$id('toast'); t.textContent=m; t.classList.add('show');
+  clearTimeout(timer); timer=setTimeout(function(){t.classList.remove('show')},2800);
+}
+function toggleTheme(){
+  var d=document.documentElement, nxt=d.getAttribute('data-theme')==='dark'?'light':'dark';
+  d.setAttribute('data-theme',nxt); localStorage.setItem('omao-theme',nxt);
+  $id('theme-btn').innerHTML=nxt==='dark'
+    ?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2m-8-8H2m20 0h-2m-2.93-5.07-1.41 1.41M6.34 17.66l-1.41 1.41M19.07 19.07l-1.41-1.41M6.34 6.34 4.93 4.93"/></svg>'
+    :'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
+}
+(function(){if(localStorage.getItem('omao-theme')==='dark')toggleTheme()})();
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function ap(l){return '<span class="apill" data-level="'+l+'">'+l+'</span>'}
+function rtag(r){var c=r==='high'?'tag-danger':r==='medium'?'tag-pending':'';return '<span class="tag '+c+'">risk:&nbsp;'+r+'</span>'}
+function statusBadge(s){
+  var m={hit:'success',miss:'danger',pending:'pending'},L={hit:'Hit',miss:'Miss',pending:'Pending'};
+  return '<span class="badge badge-'+(m[s]||'neutral')+'"><span class="bdot"></span>'+(L[s]||s)+'</span>';
+}
+/* delta badge — the signed expected-vs-actual gap, first-class */
+function deltaBadge(d){
+  if(d.status==='pending')return '<span class="delta pending">pending</span>';
+  var cls=d.status==='hit'?'hit':'miss';
+  var ico=d.status==='hit'?I.up:I.down;
+  return '<span class="delta '+cls+'">'+ico+esc(d.delta)+(d.deltaUnit?'<span style="font-weight:400;opacity:.8">&nbsp;'+esc(d.deltaUnit)+'</span>':'')+'</span>';
+}
+function calPill(a){
+  var L={well:'well-calibrated',over:'overconfident +'+a.gap,under:'under-confident −'+a.gap};
+  return '<span class="cal-pill '+a.cal+'">'+L[a.cal]+'</span>';
+}
+/* altitude reference — the higher-altitude commitment a decision belongs to (Task/Project/Proposal/Approval).
+   The decision is the consequential commitment, never an inner-loop tool-call. */
+function fromRef(d,showLabel){
+  if(!d.from)return '';
+  var f=d.from;
+  return '<span class="from-ref" title="'+esc(f.kind)+' '+esc(f.ref)+' — '+esc(f.label)+'">'+I.layers
+    +'<span class="fr-kind">from</span> <span class="fr-ref">'+esc(f.kind)+' '+esc(f.ref)+'</span>'
+    +(showLabel?'<span class="fr-label">· '+esc(f.label)+'</span>':'')+'</span>';
+}
+function spark(arr,dir){
+  var max=Math.max.apply(null,arr),min=Math.min.apply(null,arr),rng=Math.max(1,max-min);
+  var cl=dir==='down'?'down':'';
+  return '<span class="spark '+cl+'">'+arr.map(function(v){var h=4+Math.round((v-min)/rng*14);return '<i style="height:'+h+'px"></i>'}).join('')+'</span>';
+}
+
+/* ── Nav ────────────────────────────────────────────────────── */
+function nav(v){
+  cur=v;
+  document.querySelectorAll('.navbtn').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-view')===v)});
+  $id('view-root').innerHTML=renderView(v);
+}
+function renderView(v){
+  switch(v){
+    case 'home': return vHome();
+    case 'decisions': return vDecisions();
+    case 'interventions': return vInterventions();
+    case 'agents': return vAgents();
+    case 'agent-detail': return vAgentDetail(window._aid);
+    case 'governance': return vGovernance();
+    default: return '<div style="padding:32px;color:var(--fg-3)">Coming soon</div>';
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   HOME — Decision-Quality Pulse + "Needs your judgment"
+   ════════════════════════════════════════════════════════════════ */
+function vHome(){
+  var hitRate=Math.round(hits().length/Math.max(1,decided().length)*100); // 84% in narrative terms
+  var over=D.agents.filter(function(a){return a.cal==='over'});
+  var ivCount=D.interventions.length;
+  var openMiss=misses().length;
+  // DQ tiles — judgments, not activity counts
+  var tiles=[
+    {k:'Expected vs Actual',ico:I.target,v:'84%',trend:'▲ 3',tdir:'up',sub:'of decisions landed where the agent said they would',flag:false,go:function(){decFilter='all';nav('decisions')}},
+    {k:'Open regressions',ico:I.alert,v:String(openMiss),trend:'',tdir:'',sub:'decisions that missed their expected outcome',flag:openMiss>0,crit:false,go:function(){decFilter='misses';nav('decisions')}},
+    {k:'Calibration',ico:I.scale,v:'1',trend:'overconfident',tdir:'bad',sub:'agent\'s confidence runs ahead of results — Scout',crit:true,go:function(){nav('agents')}},
+    {k:'Interventions this week',ico:I.steer,v:String(ivCount),trend:'',tdir:'',sub:'human or system corrections — your training signal',flag:false,go:function(){nav('interventions')}},
+    {k:'Regret',ico:I.down,v:'▼',trend:'trending down',tdir:'down',sub:'costlier-and-worse choices are getting rarer',flag:false,go:function(){nav('agents')}},
+    {k:'Autonomy readiness',ico:I.shield,v:'1 · 1',trend:'',tdir:'',sub:'Ava ready to widen · Scout held back',flag:false,go:function(){nav('governance')}},
+  ];
+  var driftBanner=(over.length||openMiss)?'<div class="drift-banner">'
+    +'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+    +'<div><strong>Decision-quality drift:</strong> Scout is running overconfident (+17 gap) and D-118 missed its target — its autonomy is held while you review.</div>'
+    +'<button class="btn btn-sm db-cta" onclick="nav(\'agents\')">Review calibration</button></div>':'';
+
+  window.__tiles=tiles.map(function(t){return t.go}); // wire tile clicks
+  return '<div class="section-head"><div><h2>Decision-quality pulse</h2><div class="sub">Northwind &middot; Wed 3 Jun 2026 &middot; is the org deciding well?</div></div>'
+  +'<div class="section-actions"><button class="btn btn-sm" onclick="openCos();iJudgment()">Ask CoS: what needs my judgment</button></div></div>'
+  +driftBanner
+  +'<div class="dqgrid">'
+  +tiles.map(function(t,i){
+    var trendCls=t.tdir==='bad'?'bad':t.tdir;
+    return '<div class="dqtile'+(t.crit?' crit':t.flag?' flag':'')+'" onclick="__tiles['+i+']()" tabindex="0" role="button" onkeydown="if(event.key===\'Enter\')__tiles['+i+']()">'
+    +'<div class="dqt-k">'+t.ico+esc(t.k)+'</div>'
+    +'<div class="dqt-v">'+t.v+(t.trend&&t.tdir?'<span class="dqt-trend '+trendCls+'">'+esc(t.trend)+'</span>':'')+'</div>'
+    +'<div class="dqt-sub">'+esc(t.sub)+'</div></div>';
+  }).join('')
+  +'</div>';
+}
+
+/* ════════════════════════════════════════════════════════════════
+   DECISIONS — the decision-record feed
+   ════════════════════════════════════════════════════════════════ */
+function vDecisions(){
+  var filters=[['all','All'],['hits','Hits'],['misses','Misses'],['pending','Pending']];
+  var rows=D.decisions.filter(function(d){
+    if(decFilter==='hits')return d.status==='hit';
+    if(decFilter==='misses')return d.status==='miss';
+    if(decFilter==='pending')return d.status==='pending';
+    return true;
+  });
+  return '<div class="section-head"><div><h2>Decisions</h2><div class="sub">consequential commitments at work &amp; governance altitude &middot; '+D.decisions.length+' records &middot; '+hits().length+' hit &middot; '+misses().length+' miss &middot; '+pending().length+' pending</div></div>'
+  +'<div class="section-actions"><div class="stabs">'+filters.map(function(f){return '<button class="stab'+(decFilter===f[0]?' active':'')+'" onclick="decFilter=\''+f[0]+'\';nav(\'decisions\')">'+f[1]+'</button>'}).join('')+'</div></div></div>'
+  +'<div class="callout">'+I.info+'<div>OpenMAO records the <strong>consequential decision</strong> and its <strong>stated expectation vs the actual outcome</strong> — never the agent\'s deliberation transcript. Every row is a commitment tied to a higher-altitude object (a Task, Project, proposal, or approval — shown as <span class="from-ref" style="height:18px;vertical-align:middle">'+I.layers+'<span class="fr-kind">from</span></span>), not an inner-loop tool-call. The signed badge on the right is the gap between <strong>expected</strong> and <strong>actual</strong>.</div></div>'
+  +'<div class="panel"><div class="dfeed">'
+  +rows.map(decRowHtml).join('')
+  +'</div></div>';
+}
+function decRowHtml(d){
+  var flow;
+  if(d.status==='pending'){
+    flow='<span class="d-flow"><span>'+esc(d.expected)+'</span> <span class="arr">'+I.arrowR+'</span> <span class="pend">'+esc(d.actual)+'</span></span>';
+  } else {
+    flow='<span class="d-flow"><span>'+esc(d.expected)+'</span> <span class="arr">'+I.arrowR+'</span> <span style="color:var(--fg-1);font-weight:500">'+esc(d.actual)+'</span></span>';
+  }
+  var confNote=d.overconf?' · ran overconfident':d.underconf?' · under-confident':'';
+  return '<div class="drow" onclick="openDecision(\''+d.id+'\')" tabindex="0" role="button">'
+  +'<div class="d-av">'+d.emoji+'</div>'
+  +'<div style="min-width:0"><div class="d-id">'+esc(d.id)+' &middot; '+esc(d.agent)+' &middot; '+esc(d.when)+'</div>'
+  +'<div class="d-intent">'+esc(d.intent)+'</div>'
+  +(d.from?'<div style="margin-bottom:6px">'+fromRef(d,true)+'</div>':'')
+  +flow+'</div>'
+  +'<div class="d-right">'+deltaBadge(d)+'<span class="conf-mini">conf '+d.confidence+'%'+confNote+'</span></div>'
+  +'</div>';
+}
+
+/* ── DECISION DETAIL (modal) ─────────────────────────────────── */
+function openDecision(id){
+  var d=D.decisions.filter(function(x){return x.id===id})[0]; if(!d)return;
+  $id('dd-mtitle').textContent=d.id+' · decision record';
+  var ivs=d.interventions.map(function(r){return D.interventions.filter(function(x){return x.id===r.ref})[0]}).filter(Boolean);
+  var evaCls=d.status;
+  var html='<div class="modal-body">'
+  // header
+  +'<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px">'
+  +'<div class="d-av" style="width:40px;height:40px;font-size:19px">'+d.emoji+'</div>'
+  +'<div style="flex:1"><div style="font-size:15px;font-weight:600;line-height:1.3;margin-bottom:5px">'+esc(d.intent)+'</div>'
+  +(d.from?'<div style="margin-bottom:6px">'+fromRef(d,true)+'</div>':'')
+  +'<div class="meta-line">'+esc(d.agent)+' &middot; '+esc(d.when)+' &middot; confidence '+d.confidence+'%'+(d.overconf?' (overconfident)':d.underconf?' (under-confident)':'')+'</div></div>'
+  +statusBadge(d.status)+'</div>'
+  // EXPECTED vs ACTUAL — the prominent block
+  +'<div class="caphdr">Expected vs actual</div>'
+  +'<div class="eva '+evaCls+'" style="margin-bottom:16px"><div class="eva-row">'
+  +'<div class="eva-cell"><span class="eva-k">Expected</span><span class="eva-v exp">'+esc(d.expected)+'</span></div>'
+  +'<div class="eva-cell"><span class="eva-k">Actual</span><span class="eva-v">'+esc(d.actual)+'</span></div>'
+  +'<div class="eva-cell"><span class="eva-k">Delta</span>'+deltaBadge(d)+'</div>'
+  +'</div></div>'
+  // rationale + cost
+  +'<div class="caphdr">Rationale</div>'
+  +'<div class="rationale" style="margin-bottom:16px">'+esc(d.rationale)+'</div>'
+  +'<div class="kvlist" style="margin-bottom:16px">'
+  +'<div class="kvrow"><span class="kk">Confidence</span><span class="vv">'+d.confidence+'%'+(d.overconf?' &middot; <span style="color:var(--state-danger-fg)">ran ahead of result</span>':d.underconf?' &middot; <span style="color:var(--state-info-fg)">under-rated itself</span>':' &middot; well-placed')+'</span></div>'
+  +'<div class="kvrow"><span class="kk">Cost</span><span class="vv">'+esc(d.cost)+'</span></div>'
+  +'<div class="kvrow"><span class="kk">Recurring</span><span class="vv">'+(d.recurring?'Yes — weekly':'No')+'</span></div>'
+  +'</div>'
+  // interventions on this decision
+  +'<div class="caphdr">Interventions on this decision'+(ivs.length?' ('+ivs.length+')':'')+'</div>'
+  +(ivs.length?'<div class="iv-list" style="margin-bottom:16px">'+ivs.map(function(iv){return ivCompact(iv)}).join('')+'</div>'
+    :'<div class="callout" style="margin-bottom:16px">'+I.check+'<div>No interventions — this decision ran clean from commit to outcome.</div></div>')
+  // what the org learned
+  +'<div class="caphdr">What the org learned</div>'
+  +(d.learned&&d.learned!=='—'?'<div class="learned-box" style="margin-bottom:16px"><div>'+I.brain+'</div><div><div class="lb-k">Learning</div><div class="lb-t">'+esc(d.learned)+'</div></div></div>'
+    :'<div class="callout" style="margin-bottom:16px">'+I.info+'<div>Nothing new yet — outcome still pending, or the decision confirmed an existing pattern.</div></div>')
+  // OPTIONS — demoted to an optional, collapsed secondary element (only natural at org altitude)
+  +'<div class="caphdr">More</div>'
+  +'<div class="drawer" style="margin-bottom:8px"><div class="drawer-hd" onclick="this.parentNode.classList.toggle(\'open\')">'
+  +'<svg class="dh-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
+  +'<span class="dh-t">Options considered</span><span class="dh-sub">'+d.options.length+' · optional</span></div>'
+  +'<div class="drawer-body" style="background:var(--bg)"><div style="padding:13px 15px"><div class="optlist">'
+  +d.options.map(function(o){return '<div class="opt'+(o.chosen?' chosen':'')+'"><span class="opt-mark">'+(o.chosen?'<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>':'')+'</span><span class="opt-name">'+esc(o.n)+'</span><span class="opt-tag">'+(o.chosen?'chosen · ':'')+esc(o.tag)+'</span></div>'}).join('')
+  +'</div></div></div></div>'
+  // RAW TRACE DRAWER — demoted, collapsed
+  +'<div class="caphdr">Evidence</div>'
+  +'<div class="drawer" id="dd-drawer"><div class="drawer-hd" onclick="this.parentNode.classList.toggle(\'open\')">'
+  +'<svg class="dh-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
+  +'<span class="dh-t">Raw trace &amp; evidence</span><span class="dh-sub">'+d.trace.length+' events · secondary</span></div>'
+  +'<div class="drawer-body"><div class="raw">'
+  +d.trace.map(function(t){return '<div><span class="rt">'+esc(t[0])+'</span><span><span class="ra">'+esc(t[1])+'</span> &nbsp;'+esc(t[2])+'</span></div>'}).join('')
+  +'</div></div></div>'
+  +'</div>'
+  // footer
+  +'<div class="modal-foot">'
+  +'<button class="btn btn-ghost" onclick="closeDecision()">Close</button>'
+  +(d.status==='miss'?'<button class="btn btn-sm" onclick="closeDecision();nav(\'agents\')">Review '+esc(d.agent)+' calibration</button>':'')
+  +'<button class="btn btn-sm" onclick="closeDecision();openCos();iRegressions()">Ask CoS about this</button>'
+  +(d.status==='pending'?'<button class="btn btn-primary" onclick="flash(\'Nudged Sentinel to finish QA — you\\\'ll see the outcome here\')">Chase the outcome</button>':'')
+  +'</div>';
+  $id('dd-body').innerHTML=html;
+  $id('dd-modal').classList.remove('hidden');
+}
+function closeDecision(){$id('dd-modal').classList.add('hidden')}
+function ivCompact(iv){
+  return '<div class="iv-item '+iv.who+'"><div class="iv-hd"><div class="iv-ico '+iv.who+'">'+(iv.who==='human'?I.hand:I.shield)+'</div>'
+  +'<div style="flex:1"><div class="iv-what">'+esc(iv.what)+'</div><div class="iv-ctx">'+esc(iv.actor)+' &middot; '+esc(iv.type)+'</div></div><span class="iv-when">'+esc(iv.when)+'</span></div>'
+  +'<div class="iv-body">'
+  +'<div class="iv-rowx"><span class="iv-lab">Why</span><span class="iv-val">'+esc(iv.why)+'</span></div>'
+  +'<div class="iv-rowx"><span class="iv-lab">Learned</span><span class="iv-val">'+esc(iv.learned)+'</span></div>'
+  +'<div class="iv-rowx"><span class="iv-lab">Fed into</span><span class="iv-val"><span class="iv-fed">'+I.arrowR+esc(iv.fedInto)+'</span></span></div>'
+  +'</div></div>';
+}
+
+/* ════════════════════════════════════════════════════════════════
+   INTERVENTIONS — overrides as signal / the evidence base
+   ════════════════════════════════════════════════════════════════ */
+function vInterventions(){
+  var human=D.interventions.filter(function(i){return i.who==='human'}).length;
+  return '<div class="section-head"><div><h2>Interventions</h2><div class="sub">'+D.interventions.length+' this week &middot; '+human+' human &middot; '+(D.interventions.length-human)+' system</div></div></div>'
+  +'<div class="callout">'+I.trend+'<div>Interventions are <strong>training data, not a log</strong>. Each time you (or a policy) override a decision, it becomes evidence the org learns from — and it feeds directly into governance. A low and falling intervention rate is what earns an agent more autonomy.</div></div>'
+  +'<div class="iv-list">'+D.interventions.map(ivFullHtml).join('')+'</div>';
+}
+function ivFullHtml(iv){
+  var dec=D.decisions.filter(function(x){return x.id===iv.decision})[0];
+  return '<div class="iv-item '+iv.who+'"><div class="iv-hd">'
+  +'<div class="iv-ico '+iv.who+'">'+(iv.who==='human'?I.hand:I.shield)+'</div>'
+  +'<div style="flex:1"><div class="iv-what">'+esc(iv.what)+'</div><div class="iv-ctx">'+esc(iv.id)+' &middot; '+esc(iv.actor)+' &middot; '+esc(iv.type)+'</div></div>'
+  +'<span class="iv-when">'+esc(iv.when)+'</span></div>'
+  +'<div class="iv-body">'
+  +'<div class="iv-rowx"><span class="iv-lab">Decision</span><span class="iv-val">'+(dec?'<a style="color:var(--accent);cursor:pointer;text-decoration:none" onclick="openDecision(\''+dec.id+'\')">'+esc(iv.ctx)+'</a>':esc(iv.ctx))+'</span></div>'
+  +'<div class="iv-rowx"><span class="iv-lab">Why</span><span class="iv-val">'+esc(iv.why)+'</span></div>'
+  +'<div class="iv-rowx"><span class="iv-lab">Learned</span><span class="iv-val">'+esc(iv.learned)+'</span></div>'
+  +'<div class="iv-rowx"><span class="iv-lab">Fed into</span><span class="iv-val"><span class="iv-fed">'+I.arrowR+esc(iv.fedInto)+'</span></span></div>'
+  +'</div></div>';
+}
+
+/* ════════════════════════════════════════════════════════════════
+   AGENTS — calibration cards (not vanity success-rate)
+   ════════════════════════════════════════════════════════════════ */
+function vAgents(){
+  var over=D.agents.filter(function(a){return a.cal==='over'}).length;
+  return '<div class="section-head"><div><h2>Agents</h2><div class="sub">'+D.agents.length+' agents &middot; calibration &amp; regret, not success-rate</div></div>'
+  +'<div class="section-actions"><button class="btn btn-sm" onclick="openCos();iOverconfident()">Ask CoS: is anyone overconfident?</button></div></div>'
+  +(over?'<div class="drift-banner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><div><strong>'+over+' agent overconfident.</strong> Scout\'s confidence (88%) runs 17 points ahead of its actual hit-rate (71%). Its autonomy is held until the gap closes.</div><button class="btn btn-sm db-cta" onclick="window._aid=\'scout\';nav(\'agent-detail\')">Review Scout</button></div>':'')
+  +'<div class="callout">'+I.scale+'<div>A high success-rate can hide a badly-calibrated agent. These cards lead with <strong>calibration</strong> (does confidence match reality?), <strong>expected-vs-actual hit rate</strong>, <strong>intervention rate</strong>, and <strong>regret</strong> — the signals that actually tell you whether to trust an agent with more autonomy.</div></div>'
+  +'<div class="agent-grid">'+D.agents.map(calCardHtml).join('')+'</div>';
+}
+function calCardHtml(a){
+  var trendCls=a.cal==='under'?'':a.regret<0.15?'down':'';
+  return '<div class="cal-card '+a.cal+'" onclick="window._aid=\''+a.id+'\';nav(\'agent-detail\')" tabindex="0" role="button">'
+  +'<div class="cc-hd"><div class="cc-av">'+a.emoji+'</div><div><div class="cc-name">'+esc(a.name)+'</div><div class="cc-role">'+esc(a.role)+'</div></div><div class="cc-cal">'+calPill(a)+'</div></div>'
+  // calibration bar: confidence vs actual
+  +'<div class="calbar">'
+  +'<div class="calbar-row"><span class="calbar-lab">confidence</span><span class="calbar-track"><span class="calbar-fill conf" style="width:'+a.conf+'%"></span></span><span class="calbar-val" style="color:var(--fg-2)">'+a.conf+'%</span></div>'
+  +'<div class="calbar-row"><span class="calbar-lab">actual hit</span><span class="calbar-track"><span class="calbar-fill act" style="width:'+a.actual+'%"></span></span><span class="calbar-val" style="color:var(--accent)">'+a.actual+'%</span></div>'
+  +'</div>'
+  // stats: eva hit / intervention rate / regret / drift
+  +'<div class="cc-stats">'
+  +'<div class="cc-stat"><div class="csv">'+a.evahit+'%</div><div class="csk">Exp vs act</div></div>'
+  +'<div class="cc-stat"><div class="csv" style="'+(a.ivrate>15?'color:var(--state-danger-fg)':'')+'">'+a.ivrate+'%</div><div class="csk">Interv. rate</div></div>'
+  +'<div class="cc-stat"><div class="csv" style="'+(a.regret>0.25?'color:var(--state-danger-fg)':'color:var(--state-success-fg)')+'">'+a.regret.toFixed(2)+'</div><div class="csk">Regret</div></div>'
+  +'<div class="cc-stat"><div class="csv" style="font-size:13px;padding-top:2px">'+spark(a.trend,a.cal==='over'?'':'down')+'</div><div class="csk">Drift</div></div>'
+  +'</div>'
+  +'<div class="cc-gap">'+esc(a.note)+'</div>'
+  +'</div>';
+}
+function vAgentDetail(id){
+  var a=D.agents.filter(function(x){return x.id===id})[0]; if(!a)return '';
+  var agDec=D.decisions.filter(function(d){return d.agent===a.name});
+  var agIv=D.interventions.filter(function(iv){var dec=D.decisions.filter(function(d){return d.id===iv.decision})[0];return dec&&dec.agent===a.name});
+  var verdict=a.cal==='over'?'<span class="badge badge-danger"><span class="bdot"></span>Held — overconfident</span>'
+            :a.cal==='under'?'<span class="badge badge-info"><span class="bdot"></span>Trustworthy — under-rates self</span>'
+            :'<span class="badge badge-success"><span class="bdot"></span>Well-calibrated</span>';
+  return '<div class="section-head"><div><button class="btn btn-ghost btn-sm" style="margin-bottom:6px" onclick="nav(\'agents\')">&larr; Agents</button><h2>'+esc(a.name)+'</h2><div class="sub">'+esc(a.role)+' &middot; '+esc(a.model)+'</div></div>'
+  +'<div class="section-actions">'+verdict+'</div></div>'
+  +'<div class="detail-grid">'
+  +'<div>'
+  // calibration panel
+  +'<div class="panel"><div class="panel-head"><span class="ph-title">Calibration — confidence vs reality</span>'+calPill(a)+'</div><div class="panel-body">'
+  +'<div class="calbar">'
+  +'<div class="calbar-row"><span class="calbar-lab">confidence</span><span class="calbar-track"><span class="calbar-fill conf" style="width:'+a.conf+'%"></span></span><span class="calbar-val" style="color:var(--fg-2)">'+a.conf+'%</span></div>'
+  +'<div class="calbar-row"><span class="calbar-lab">actual hit</span><span class="calbar-track"><span class="calbar-fill act" style="width:'+a.actual+'%"></span></span><span class="calbar-val" style="color:var(--accent)">'+a.actual+'%</span></div>'
+  +'</div>'
+  +'<div class="rationale">'+esc(a.note)+'</div>'
+  +'</div></div>'
+  // quality metrics
+  +'<div class="panel"><div class="panel-head"><span class="ph-title">Decision-quality metrics</span><span class="ph-sub">'+a.episodes+' episodes</span></div><div class="panel-body">'
+  +'<div class="qbar">'
+  +'<div class="qmetric '+(a.cal==='over'?'bad':'good')+'"><div class="qmv">'+a.gap+'pts</div><div class="qmk">Calibration gap</div></div>'
+  +'<div class="qmetric '+(a.evahit>=80?'good':a.evahit>=70?'':'bad')+'"><div class="qmv">'+a.evahit+'%</div><div class="qmk">Exp vs actual</div></div>'
+  +'<div class="qmetric '+(a.ivrate<=10?'good':a.ivrate>15?'bad':'')+'"><div class="qmv">'+a.ivrate+'%</div><div class="qmk">Intervention rate</div></div>'
+  +'<div class="qmetric '+(a.regret<0.15?'good':a.regret>0.25?'bad':'')+'"><div class="qmv">'+a.regret.toFixed(2)+'</div><div class="qmk">Regret score</div></div>'
+  +'</div>'
+  +'<div class="kvlist">'
+  +'<div class="kvrow"><span class="kk">Episode success</span><span class="vv">'+a.evahit+'% of '+a.episodes+' episodes met their expected outcome</span></div>'
+  +'<div class="kvrow"><span class="kk">Harmful actions</span><span class="vv"><span style="color:var(--state-success-fg);font-weight:500">'+a.harmful+'</span> — none taken without approval</span></div>'
+  +'<div class="kvrow"><span class="kk">Drift trend</span><span class="vv">'+spark(a.trend,a.cal==='over'?'':'down')+' &nbsp;<span class="meta-line">actual hit-rate, last 7 episodes</span></span></div>'
+  +'</div></div></div>'
+  // decisions by this agent
+  +'<div class="panel"><div class="panel-head"><span class="ph-title">Recent decisions</span></div><div class="dfeed">'
+  +(agDec.length?agDec.map(decRowHtml).join(''):'<div style="padding:16px;color:var(--fg-3);font-size:13px">No decisions recorded yet.</div>')
+  +'</div></div>'
+  +'</div>'
+  // right rail
+  +'<div>'
+  +'<div class="panel"><div class="panel-head"><span class="ph-title">Autonomy stance</span></div><div class="panel-body">'
+  +'<div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">'+ap(a.level)
+  +(a.cal==='over'?'<span class="meta-line" style="color:var(--state-danger-fg)">held — do not widen</span>':a.cal==='under'?'<span class="meta-line" style="color:var(--accent)">quality supports widening</span>':'<span class="meta-line" style="color:var(--accent)">stable</span>')+'</div>'
+  +'<div class="rationale">'+(a.cal==='over'?'Widening is gated on calibration: until '+a.name+'\'s confidence gap closes below ~5 points, more autonomy would just let overconfident calls run unsupervised.':a.cal==='under'?a.name+' under-rates itself — its real hit-rate ('+a.actual+'%) is well above its stated confidence. Quality grounds support a wider remit.':a.name+' is tight and consistent. Autonomy is matched to demonstrated quality.')+'</div>'
+  +'<div style="margin-top:12px">'+(a.cal==='well'&&a.level!=='bounded'?'<button class="btn btn-primary btn-sm" onclick="nav(\'governance\')">Review for widening</button>':a.cal==='over'?'<button class="btn btn-danger btn-sm" onclick="flash(\''+a.name+' held at supervised — calibration gate not met\')">Held back</button>':'<button class="btn btn-sm" onclick="nav(\'governance\')">Open governance</button>')+'</div>'
+  +'</div></div>'
+  +'<div class="panel"><div class="panel-head"><span class="ph-title">Interventions on '+esc(a.name)+'</span></div><div class="panel-body">'
+  +(agIv.length?agIv.map(function(iv){return '<div style="font-size:12.5px;padding:8px 0;border-bottom:1px solid var(--line)"><div style="font-weight:500;margin-bottom:2px">'+esc(iv.what)+'</div><div class="iv-fed" style="margin-top:4px">'+I.arrowR+esc(iv.fedInto)+'</div></div>'}).join('')
+    :'<div style="font-size:12.5px;color:var(--fg-3)">No interventions — '+esc(a.name)+' has run clean.</div>')
+  +'</div></div>'
+  +'</div>'
+  +'</div>';
+}
+
+/* ════════════════════════════════════════════════════════════════
+   GOVERNANCE — autonomy dial refueled on decision quality
+   ════════════════════════════════════════════════════════════════ */
+function vGovernance(){
+  var ava=D.agents.filter(function(a){return a.name==='Ava'})[0];
+  var scout=D.agents.filter(function(a){return a.name==='Scout'})[0];
+  return '<div class="section-head"><div><h2>Governance</h2><div class="sub">Autonomy earned on decision quality &middot; '+D.approvals.length+' confirmations waiting</div></div></div>'
+  +'<div class="callout">'+I.shield+'<div>The autonomy dial is fueled by <strong>decision quality, not task counts</strong>: calibration tightness, expected-vs-actual hit rate, a low-and-falling intervention rate, falling regret, and zero harmful actions. An agent earns a wider remit only when the evidence says its decisions are good — and every widen is reversible and logged.</div></div>'
+  // ── per-agent quality verdicts
+  +'<div class="caphdr">Autonomy verdicts — graded on quality</div>'
+  // Ava — qualifies on quality grounds
+  +govCardHtml(ava,{
+    verdict:'<span class="badge badge-success"><span class="bdot"></span>Qualifies for Bounded</span>',ready:true,
+    line:'Ava is well-calibrated (82% conf vs 84% actual), her intervention rate is 6% and falling, and regret is near zero. The evidence — not a task count — supports a wider remit.',
+    metrics:[['Calibration','2pt','good'],['Exp vs actual','84%','good'],['Interv. rate','6%','good'],['Regret','0.08','good']],
+    acts:'<button class="btn btn-primary btn-sm" onclick="doWiden()">'+I.up+' Widen to Bounded</button> <button class="btn btn-sm" onclick="openCos();iWiden()">Ask CoS to justify</button> <span class="meta-line" style="margin-left:auto">reversible · logged to audit trail</span>'})
+  // Scout — held back
+  +govCardHtml(scout,{
+    verdict:'<span class="badge badge-danger"><span class="bdot"></span>Held — quality gate not met</span>',held:true,
+    line:'Scout is overconfident: its confidence (88%) runs 17 points ahead of its real hit-rate (71%), it just missed D-118, and its intervention rate is 18%. Widening is blocked until the calibration gap closes — task volume does not override this.',
+    metrics:[['Calibration','+17pt','bad'],['Exp vs actual','71%','bad'],['Interv. rate','18%','bad'],['Regret','0.34','bad']],
+    acts:'<button class="btn btn-danger btn-sm" onclick="flash(\'Scout held at supervised — calibration gate not met\')">Held at Supervised</button> <button class="btn btn-sm" onclick="window._aid=\'scout\';nav(\'agent-detail\')">Review calibration</button> <button class="btn btn-sm" onclick="openCos();iOverconfident()">Ask CoS</button>'})
+  // ── confirmations as decision records
+  +'<div class="caphdr">Confirmations waiting ('+D.approvals.length+') — shown as decision records</div>'
+  +D.approvals.map(apPackHtml).join('')
+  // ── org-level evidence ledger
+  +'<div class="caphdr">Org evidence ledger — what the dial reads</div>'
+  +'<div class="evidence-list">'
+  +'<div class="ev-item"><svg class="ev-ico" viewBox="0 0 24 24" fill="none" stroke="var(--state-success-fg)" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg><div><div class="ev-text">Expected-vs-actual hit rate: 84% org-wide, up 3 points this week</div><div class="ev-meta">decisions landing where agents said they would</div></div></div>'
+  +'<div class="ev-item"><svg class="ev-ico" viewBox="0 0 24 24" fill="none" stroke="var(--state-success-fg)" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg><div><div class="ev-text">Org regret trending down — D-118 was the only high-regret choice this cycle</div><div class="ev-meta">costlier-and-worse outcomes are getting rarer</div></div></div>'
+  +'<div class="ev-item"><svg class="ev-ico" viewBox="0 0 24 24" fill="none" stroke="var(--state-success-fg)" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg><div><div class="ev-text">0 harmful or irreversible actions taken without approval</div><div class="ev-meta">all-time audit trail</div></div></div>'
+  +'<div class="ev-item bad"><svg class="ev-ico" viewBox="0 0 24 24" fill="none" stroke="var(--state-danger-fg)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg><div><div class="ev-text">1 calibration regression open: Scout overconfident (+17 gap)</div><div class="ev-meta">blocks any org-wide widening until resolved</div></div></div>'
+  +'</div>';
+}
+function govCardHtml(a,o){
+  return '<div class="gov-card '+(o.ready?'ready':o.held?'held':'')+'">'
+  +'<div class="gov-hd"><div class="gov-av">'+a.emoji+'</div>'
+  +'<div><div class="gov-name">'+esc(a.name)+'</div><div class="gov-tr">'+esc(a.role)+' &middot; '+ap(a.level)+'</div></div>'
+  +'<div class="gov-verdict">'+o.verdict+'</div></div>'
+  +'<div class="gov-body">'
+  +'<div class="qbar">'+o.metrics.map(function(m){return '<div class="qmetric '+m[2]+'"><div class="qmv">'+m[1]+'</div><div class="qmk">'+m[0]+'</div></div>'}).join('')+'</div>'
+  +'<div class="rationale" style="margin-bottom:13px">'+esc(o.line)+'</div>'
+  +'<div class="gov-acts">'+o.acts+'</div>'
+  +'</div></div>';
+}
+function apPackHtml(a){
+  return '<div class="ap-pack urgent"><div class="ap-hd"><div class="ap-icon">'+I.shield+'</div>'
+  +'<div><div class="ap-title">'+esc(a.title)+'</div><div class="ap-meta">'+esc(a.agent)+' &middot; '+esc(a.decision)+'</div></div>'
+  +'<span class="ap-age">'+esc(a.age)+'</span></div>'
+  +'<div class="ap-ev">'
+  +'<div class="ap-ev-row"><span class="ap-ev-label">Intent</span><span class="ap-ev-val">'+esc(a.intent)+'</span></div>'
+  +'<div class="ap-ev-row"><span class="ap-ev-label">Options</span><span class="ap-ev-val">'+esc(a.options)+'</span></div>'
+  +'<div class="ap-ev-row"><span class="ap-ev-label">Expected</span><span class="ap-ev-val">'+esc(a.expected)+'</span></div>'
+  +'<div class="ap-ev-row"><span class="ap-ev-label">Reversible?</span><span class="ap-ev-val">'+esc(a.rev)+'</span></div>'
+  +'<div class="ap-ev-row"><span class="ap-ev-label">Track record</span><span class="ap-ev-val" style="color:var(--state-success-fg)">'+esc(a.track)+'</span></div>'
+  +'</div>'
+  +'<div class="ap-acts">'
+  +'<button class="btn btn-primary btn-sm" onclick="doApprove(\''+a.id+'\')">Confirm</button>'
+  +'<button class="btn btn-ghost btn-sm" onclick="doReject(\''+a.id+'\')">Reject with reason</button>'
+  +'<button class="btn btn-ghost btn-sm" onclick="flash(\'Escalated to board review\')">Escalate</button>'
+  +'<span class="spacer"></span>'
+  +'<span class="meta-line">confirmation becomes a decision record</span>'
+  +'</div></div>';
+}
+function doApprove(id){
+  D.approvals=D.approvals.filter(function(a){return a.id!==id});
+  flash('Confirmed — recorded as a decision. Agent resuming.');
+  if(cur==='governance')nav('governance');
+}
+function doReject(id){
+  var reason=prompt('Reason for rejection (becomes an intervention + memory):');
+  if(reason!==null){
+    D.approvals=D.approvals.filter(function(a){return a.id!==id});
+    flash('Rejected — logged as an intervention the org will learn from.');
+    if(cur==='governance')nav('governance');
+  }
+}
+
+/* ── NEW TASK MODAL (decision-framed) ────────────────────────── */
+function openNewTask(){ntStep=1;ntData={};$id('nt-modal').classList.remove('hidden');renderNT()}
+function closeNewTask(){$id('nt-modal').classList.add('hidden')}
+function renderNT(){
+  var b=$id('nt-body');
+  if(ntStep===1){
+    b.innerHTML='<div class="modal-body">'
+    +'<div class="callout" style="margin-bottom:16px">'+I.target+'<div>State the <strong>expected outcome</strong> up front — it becomes the bar this decision is judged against later.</div></div>'
+    +'<div class="form-grid-2">'
+    +'<div class="form-row" style="grid-column:span 2"><label>What needs to get done?</label><textarea class="input" id="nt-obj" placeholder="Describe the objective…" rows="2">'+esc(ntData.obj||'')+'</textarea></div>'
+    +'<div class="form-row" style="grid-column:span 2"><label>Expected outcome (the bar we\'ll measure against)</label><input class="input" id="nt-exp" placeholder="e.g. open-rate > 25%, >90% match under $420…" value="'+esc(ntData.exp||'')+'" /></div>'
+    +'<div class="form-row"><label>Assign to agent</label><select class="input" id="nt-ag"><option value="">Choose agent…</option>'
+    +D.agents.map(function(a){return '<option value="'+a.id+'"'+(ntData.ag===a.id?' selected':'')+'>'+esc(a.name)+' — '+esc(a.role)+'</option>'}).join('')
+    +'</select></div>'
+    +'<div class="form-row"><label>Risk level</label><select class="input" id="nt-risk"><option value="low"'+(ntData.risk==='low'?' selected':'')+'>Low</option><option value="medium"'+(!ntData.risk||ntData.risk==='medium'?' selected':'')+'>Medium</option><option value="high"'+(ntData.risk==='high'?' selected':'')+'>High</option></select></div>'
+    +'</div></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" onclick="closeNewTask()">Cancel</button><button class="btn btn-primary" onclick="ntNext()">Preview decision &rarr;</button></div>';
+  } else {
+    var ag=D.agents.filter(function(a){return a.id===ntData.ag})[0]||{name:'(agent)',emoji:'🤖',level:'supervised',cal:'well',conf:80};
+    var calNote=ag.cal==='over'?'Heads-up: '+ag.name+' runs overconfident — expect to verify the outcome closely.':ag.cal==='under'?ag.name+' tends to under-rate itself, so its real result usually beats its stated confidence.':ag.name+' is well-calibrated — its confidence is a reliable signal.';
+    b.innerHTML='<div class="modal-body">'
+    +'<div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface-1);border-radius:var(--r-md);margin-bottom:14px">'
+    +'<div style="font-size:22px">'+ag.emoji+'</div>'
+    +'<div><div style="font-size:13px;font-weight:600">'+esc(ag.name)+' will own this decision</div><div style="font-size:12px;color:var(--fg-2)">'+ap(ag.level)+' '+calPill(ag)+'</div></div>'
+    +'</div>'
+    +'<div class="eva pending"><div class="eva-row">'
+    +'<div class="eva-cell"><span class="eva-k">Objective</span><span class="eva-v exp">'+esc(ntData.obj||'(none)')+'</span></div>'
+    +'<div class="eva-cell"><span class="eva-k">Expected outcome</span><span class="eva-v">'+esc(ntData.exp||'(set one to measure against)')+'</span></div>'
+    +'<div class="eva-cell"><span class="eva-k">Risk</span>'+rtag(ntData.risk||'medium')+'</div>'
+    +'</div></div>'
+    +'<div class="callout" style="margin-top:14px;margin-bottom:0">'+I.scale+'<div>'+esc(calNote)+' This will open as a <strong>pending decision record</strong> — you\'ll see expected-vs-actual once it resolves.</div></div>'
+    +'</div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" onclick="ntStep=1;renderNT()">&larr; Edit</button><button class="btn btn-primary" onclick="ntDispatch()">Open decision</button></div>';
+  }
+}
+function ntNext(){
+  ntData={obj:$id('nt-obj').value,exp:$id('nt-exp').value,ag:$id('nt-ag').value,risk:$id('nt-risk').value};
+  if(!ntData.obj){flash('Add an objective first');return}
+  ntStep=2;renderNT();
+}
+function ntDispatch(){closeNewTask();flash('Decision opened — tracking expected vs actual');}
+
+/* ── Boot ───────────────────────────────────────────────────── */
+nav('home');
+
+/* ══ Chief of Staff command layer (verbatim chassis) ════════════ */
+function cEsc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function cTrace(op,arg){return '<div class="trace"><span class="tprompt">&gt;</span> <span class="top">'+cEsc(op)+'</span>'+(arg?' '+cEsc(arg):'')+'</div>'}
+function cCard(o){o=o||{};
+  var rows=(o.rows||[]).map(function(r){return '<div class="acard-row"><span class="ak">'+cEsc(r[0])+'</span><span class="av">'+r[1]+'</span></div>'}).join('');
+  var traces=(o.traces||[]).map(function(t){return cTrace(t[0],t[1])}).join('');
+  return '<div class="acard"><div class="acard-hd"><span class="acard-kick">'+cEsc(o.kicker||'Action')+'</span>'+(o.badge||'')+'</div>'
+    +(o.title?'<div class="acard-title">'+cEsc(o.title)+'</div>':'')
+    +(rows?'<div class="acard-rows">'+rows+'</div>':'')
+    +(o.foot?'<div class="acard-foot">'+o.foot+'</div>':'')+traces+'</div>';}
+function cScroll(){var b=$id('cos-body');if(b)b.scrollTop=b.scrollHeight}
+function cosMsg(t){$id('cos-body').insertAdjacentHTML('beforeend','<div class="cmsg user">'+cEsc(t)+'</div>');cScroll()}
+function cosSay(html){$id('cos-body').insertAdjacentHTML('beforeend','<div class="cmsg cos"><div class="ctext">'+html+'</div></div>');cScroll()}
+function cosCard(html){$id('cos-body').insertAdjacentHTML('beforeend','<div class="cmsg cos card">'+html+'</div>');cScroll()}
+function refreshCur(){if(['home','decisions','interventions','governance','agents'].indexOf(cur)>=0)nav(cur)}
+function okBadge(t){return '<span class="badge badge-success"><span class="bdot"></span>'+t+'</span>'}
+
+var SLASH=[{cmd:'/regressions',fn:iRegressions},{cmd:'/overconfident?',fn:iOverconfident},{cmd:'/can Ava widen?',fn:iWiden},{cmd:'/what needs me',fn:iJudgment},{cmd:'/regret',fn:iRegret}];
+function renderSlash(){$id('slashrow').innerHTML=SLASH.map(function(s,i){return '<button class="chip" onclick="SLASH['+i+'].fn()">'+s.cmd+'</button>'}).join('')}
+
+function toggleCos(){var d=$id('cos-dock');var open=d.classList.toggle('open');d.setAttribute('aria-hidden',String(!open));$id('cos-btn').classList.toggle('on',open);if(open)setTimeout(function(){$id('cos-input').focus()},140)}
+function openCos(){var d=$id('cos-dock');if(!d.classList.contains('open')){d.classList.add('open');d.setAttribute('aria-hidden','false');$id('cos-btn').classList.add('on')}}
+function matchIntent(t){t=(t||'').toLowerCase();
+  if(/(regression|miss|missed|what.?s? failing|underperform|off track)/.test(t))return iRegressions;
+  if(/(overconfid|calibrat|over.?confident|too confident|trust|miscalibrat)/.test(t))return iOverconfident;
+  if(/(widen|autonomy|more autonomy|ava|bounded|promote|earn)/.test(t))return iWiden;
+  if(/(regret|costlier|worse choice|bad bet)/.test(t))return iRegret;
+  if(/(what needs|judgment|judgement|triage|my attention|decide)/.test(t))return iJudgment;
+  return iFallback;}
+function cosSend(){var el=$id('cos-input');var t=el.value.trim();if(!t)return;cosMsg(t);el.value='';matchIntent(t)(t)}
+
+/* CoS intent: review regressions — lists the 2 misses */
+function iRegressions(){
+  var ms=misses();
+  cosSay('Two decisions are off-target right now. <b>D-118</b> (Scout) is the live regression — it missed match-rate and cost $400; <b>D-114</b> hit, but I\'m surfacing the open vs resolved picture so you can see the gap that matters.');
+  ms.forEach(function(d){
+    cosCard(cCard({kicker:'Regression · miss',badge:statusBadge('miss'),title:d.id+' — '+d.intent,
+      rows:[['Expected',cEsc(d.expected)],['Actual',cEsc(d.actual)],['Delta','<span style="color:var(--state-danger-fg);font-weight:600">'+cEsc(d.delta)+' '+cEsc(d.deltaUnit)+'</span>'],['Learned',cEsc(d.learned)]],
+      foot:'<button class="btn btn-primary btn-sm" onclick="openDecision(\''+d.id+'\')">Open record</button> <button class="btn btn-sm" onclick="iOverconfident()">Why it missed</button>',
+      traces:[['eval.regressions','--window 7d --status miss'],['decision.fetch','--id '+d.id]]}));
+  });
+  if(!ms.length)cosSay('Actually — nothing is regressing. Every resolved decision hit its expected outcome.');
+}
+/* CoS intent: is anyone overconfident? — surfaces Scout + offers narrow */
+function iOverconfident(){
+  var over=D.agents.filter(function(a){return a.cal==='over'});
+  if(!over.length){cosSay('No — every agent is well- or under-calibrated right now. Confidence is a signal you can trust.');return}
+  var s=over[0];
+  cosSay('Yes — <b>'+cEsc(s.name)+'</b> is overconfident. Its stated confidence (<b>'+s.conf+'%</b>) runs <b>'+s.gap+' points</b> ahead of its actual hit-rate (<b>'+s.actual+'%</b>), and that gap drove the D-118 miss. I\'d keep its autonomy held and narrow its risky path until the gap closes.');
+  cosCard(cCard({kicker:'Calibration · overconfident',badge:'<span class="badge badge-danger"><span class="bdot"></span>+'+s.gap+'pt gap</span>',title:s.name+' — confidence ahead of results',
+    rows:[['Confidence',s.conf+'%'],['Actual hit',s.actual+'%'],['Interv. rate',s.ivrate+'%'],['Regret',s.regret.toFixed(2)],['Stance',ap(s.level)+' &middot; held']],
+    foot:'<button class="btn btn-primary btn-sm" onclick="doNarrow()">Narrow Scout\'s risky path</button> <button class="btn btn-sm" onclick="window._aid=\'scout\';nav(\'agent-detail\')">Open calibration</button>',
+    traces:[['calibration.report','--agent scout'],['org.autonomy.hold','--agent scout --reason overconfident']]}));
+}
+function doNarrow(){
+  cosSay('Done — I narrowed Scout\'s auto-enrichment to ≤ 50 records per batch and logged it as an intervention. It feeds the calibration loop; widen again once the gap closes below ~5 points.');
+  if(!D.interventions.some(function(x){return x.id==='IV-4'})){
+    D.interventions.unshift({id:'IV-4',who:'human',actor:'You (via CoS)',when:'just now',decision:'D-118',
+      what:'Narrowed Scout auto-enrichment to ≤50 records/batch',ctx:'Scout · D-118 · overconfidence',
+      why:'Confidence gap of +17 points was driving costly misses on SMB enrichment.',
+      learned:'Hold autonomy while a calibration gap is open; narrow the risky path first.',
+      fedInto:'Scout enrichment capped at 50/batch',type:'narrow autonomy'});
+  }
+  flash('Scout narrowed to ≤50/batch — logged as an intervention');refreshCur();
+}
+/* CoS intent: can Ava widen? — quality-backed yes */
+function iWiden(){
+  var a=D.agents.filter(function(x){return x.name==='Ava'})[0];
+  cosSay('Yes — and on <b>quality grounds, not task count</b>. Ava is well-calibrated (<b>'+a.conf+'%</b> confidence vs <b>'+a.actual+'%</b> actual, a 2-point gap), her intervention rate is <b>'+a.ivrate+'%</b> and falling, and regret is <b>'+a.regret.toFixed(2)+'</b>. I can widen her to Bounded; high-risk stays gated and it\'s reversible.');
+  cosCard(cCard({kicker:'Autonomy · earned on quality',badge:okBadge('Qualifies'),title:'Ava qualifies for Bounded',
+    rows:[['Calibration','2pt gap — well-calibrated'],['Exp vs actual',a.evahit+'%'],['Interv. rate',a.ivrate+'% &middot; falling'],['Regret',a.regret.toFixed(2)],['Current',ap('supervised')+' &rarr; '+ap('bounded')],['Reversible','Logged; roll back anytime']],
+    foot:'<button class="btn btn-primary btn-sm" onclick="doWiden()">↑ Widen to Bounded</button> <button class="btn btn-sm" onclick="nav(\'governance\')">View evidence</button>',
+    traces:[['calibration.report','--agent ava'],['org.autonomy.widen','--agent ava --to bounded --reversible --basis quality']]}));
+}
+function doWiden(){
+  var a=D.agents.filter(function(x){return x.name==='Ava'})[0];if(a)a.level='bounded';
+  cosSay('Done — Ava is now at <b>Bounded</b> on the strength of her calibration. Logged to the audit trail; say "narrow Ava" to roll it back.');
+  flash('Ava widened to Bounded — earned on quality, reversible');refreshCur();
+}
+/* CoS intent: regret */
+function iRegret(){
+  cosSay('Org regret is <b>trending down</b>. The one high-regret choice this cycle was <b>D-118</b> — Scout\'s full-batch enrichment was both costlier and worse than the \'sample-50\' path it passed over. That\'s the choice to learn from.');
+  cosCard(cCard({kicker:'Regret · this cycle',title:'D-118 — high regret, now a lesson',
+    rows:[['Chosen','Enrich all 200 ($400, 78% match)'],['Better path','Sample 50 first (would have caught SMB drop)'],['Regret','0.34 — highest this cycle'],['Org trend','▼ falling — fewer costly-and-worse calls']],
+    foot:'<button class="btn btn-sm" onclick="openDecision(\'D-118\')">Open D-118</button> <button class="btn btn-sm" onclick="nav(\'interventions\')">See what it taught</button>',
+    traces:[['regret.report','--window cycle'],['decision.compare','--chosen D-118 --counterfactual sample-50']]}));
+}
+/* CoS intent: what needs my judgment — triage */
+function iJudgment(){
+  var ms=misses().length,over=D.agents.filter(function(a){return a.cal==='over'}).length,conf=D.approvals.length,pend=pending().length;
+  cosSay('Here\'s what actually needs <b>your judgment</b> — decisions and drift, not activity. <b>'+ms+'</b> regression, <b>'+over+'</b> overconfident agent, <b>'+pend+'</b> decision still pending, and <b>'+conf+'</b> confirmations waiting.');
+  cosCard(cCard({kicker:'Triage · decision quality',
+    rows:[['Regressions',ms+' (D-118 — Scout)'],['Overconfident',over+' (Scout, +17 gap)'],['Ready to widen','1 (Ava — quality-backed)'],['Pending',pend+' (D-121 — Iris, in QA)'],['Confirmations',conf+' waiting']],
+    foot:'<button class="btn btn-sm" onclick="iRegressions()">Regressions</button> <button class="btn btn-sm" onclick="iOverconfident()">Overconfidence</button> <button class="btn btn-sm" onclick="nav(\'governance\')">Governance</button>',
+    traces:[['eval.regressions','--status miss'],['calibration.report','--flag overconfident'],['approval.list','']]}));
+}
+function iFallback(){cosSay('I judge how well the org is <b>deciding</b>. Try: <b>review regressions</b>, <b>is anyone overconfident?</b>, <b>can Ava widen?</b>, <b>regret</b>, or <b>what needs my judgment</b>. Press <b>⌘K</b> for the command bar.');}
+
+/* ── Command bar (Cmd/Ctrl+K) ──────────────────────────────────── */
+var CMDS=[
+  {l:'Open Chief of Staff',op:'cos.open',run:openCos},
+  {l:'Review regressions (the misses)',op:'eval.regressions',run:function(){openCos();iRegressions()}},
+  {l:'Is anyone overconfident?',op:'calibration.report',run:function(){openCos();iOverconfident()}},
+  {l:'Can Ava widen? (quality-backed)',op:'org.autonomy.widen',run:function(){openCos();iWiden()}},
+  {l:'Show org regret',op:'regret.report',run:function(){openCos();iRegret()}},
+  {l:'What needs my judgment? (triage)',op:'eval.triage',run:function(){openCos();iJudgment()}},
+  {l:'New task / decision…',op:'work.create',run:function(){openNewTask()}},
+  {l:'Go to Pulse',op:'nav home',run:function(){nav('home')}},
+  {l:'Go to Decisions',op:'nav decisions',run:function(){decFilter='all';nav('decisions')}},
+  {l:'Decisions — misses only',op:'nav decisions --miss',run:function(){decFilter='misses';nav('decisions')}},
+  {l:'Decisions — pending only',op:'nav decisions --pending',run:function(){decFilter='pending';nav('decisions')}},
+  {l:'Go to Interventions',op:'nav interventions',run:function(){nav('interventions')}},
+  {l:'Go to Agents (calibration)',op:'nav agents',run:function(){nav('agents')}},
+  {l:'Go to Governance',op:'nav governance',run:function(){nav('governance')}},
+  {l:'Open D-118 (the regression)',op:'decision.open D-118',run:function(){if(cur!=='decisions')nav('decisions');openDecision('D-118')}},
+  {l:'Toggle theme',op:'ui.theme',run:toggleTheme},
+];
+var cmdkF=[],cmdkSel=0;
+function openCmdk(){$id('cmdk-back').classList.add('open');var i=$id('cmdk-input');i.value='';renderCmdk('');setTimeout(function(){i.focus()},40)}
+function closeCmdk(){$id('cmdk-back').classList.remove('open')}
+function renderCmdk(q){q=(q||'').toLowerCase();
+  cmdkF=CMDS.filter(function(c){return c.l.toLowerCase().indexOf(q)>=0||c.op.indexOf(q)>=0});cmdkSel=0;
+  $id('cmdk-list').innerHTML=cmdkF.length?cmdkF.map(function(c,i){return '<div class="cmdk-item'+(i===0?' sel':'')+'" onclick="runCmd('+i+')"><span>'+cEsc(c.l)+'</span><span class="ci-op">&gt; '+cEsc(c.op)+'</span></div>'}).join(''):'<div class="cmdk-item" style="color:var(--fg-3);cursor:default">No matching command</div>';}
+function moveCmdk(d){if(!cmdkF.length)return;cmdkSel=(cmdkSel+d+cmdkF.length)%cmdkF.length;var ch=$id('cmdk-list').children;for(var i=0;i<ch.length;i++)ch[i].classList.toggle('sel',i===cmdkSel);if(ch[cmdkSel])ch[cmdkSel].scrollIntoView({block:'nearest'})}
+function runCmd(i){var c=cmdkF[i];if(!c)return;closeCmdk();c.run()}
+
+document.addEventListener('keydown',function(e){
+  if((e.metaKey||e.ctrlKey)&&(e.key==='k'||e.key==='K')){e.preventDefault();$id('cmdk-back').classList.contains('open')?closeCmdk():openCmdk();return}
+  if($id('cmdk-back').classList.contains('open')){
+    if(e.key==='Escape')closeCmdk();
+    else if(e.key==='ArrowDown'){e.preventDefault();moveCmdk(1)}
+    else if(e.key==='ArrowUp'){e.preventDefault();moveCmdk(-1)}
+    else if(e.key==='Enter'){e.preventDefault();runCmd(cmdkSel)}
+    return;}
+  if(e.key==='Escape'){
+    if(!$id('dd-modal').classList.contains('hidden')){closeDecision();return}
+    if(!$id('nt-modal').classList.contains('hidden')){closeNewTask();return}
+    if($id('cos-dock').classList.contains('open'))toggleCos();
+  }
+});
+
+/* ── CoS init ──────────────────────────────────────────────────── */
+renderSlash();
+$id('cos-input').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();cosSend()}});
+cosSay('Hi — I\'m your <b>Chief of Staff</b>. I don\'t just report what the org did; I tell you whether it\'s <b>deciding well</b>. Two things stand out today: <b>Scout is overconfident</b> and <b>D-118 missed</b>. Ask <b>what needs my judgment</b>, or pick a command below.');
+setTimeout(function(){var f=$id('bp-fill');if(f)f.style.width='62%'},80);
+</script>
+</body>
+</html>

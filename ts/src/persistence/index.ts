@@ -23,6 +23,12 @@ export {
   ToolConflictError,
   ToolStore,
 } from "./capabilities.js";
+export {
+  type ChainHeadAttestation,
+  ChainHeadAttestationConflictError,
+  ChainHeadAttestationStore,
+  chainHeadAttestationTableExists,
+} from "./chain-attestations.js";
 export { type Checkpoint, CheckpointSchema, CheckpointStore } from "./checkpoints.js";
 export { Database } from "./database.js";
 export { NodeEffectStore } from "./effects.js";
@@ -71,6 +77,24 @@ export {
 } from "./org-changes.js";
 export { OrgControlStore } from "./org-control.js";
 export {
+  hashPrincipalToken,
+  InvalidPrincipalPublicKeyError,
+  InvalidPrincipalStatusError,
+  InvalidPrincipalTokenHashError,
+  type Principal,
+  type PrincipalCredential,
+  PrincipalCredentialStore,
+  type PrincipalKey,
+  type PrincipalKeyAttestation,
+  PrincipalKeyAttestationStore,
+  PrincipalKeyNotFoundError,
+  type PrincipalKeyRevocation,
+  PrincipalKeyRevocationStore,
+  PrincipalKeyStore,
+  PrincipalNotFoundError,
+  PrincipalStore,
+} from "./principals.js";
+export {
   ActiveRunExistsError,
   InvalidRunTransitionError,
   RunStore,
@@ -78,6 +102,11 @@ export {
   TerminalRunTransitionError,
 } from "./runs.js";
 export { initializeSchema, SCHEMA_SQL } from "./schema.js";
+export {
+  type GovernanceSignature,
+  GovernanceSignatureConflictError,
+  GovernanceSignatureStore,
+} from "./signatures.js";
 export {
   type ChainVerificationReport,
   verifyAllChains,

@@ -31,10 +31,13 @@ coverage/
 /tools/codex-audit.sh
 
 # OpenMAO local runtime and private workspace records
+#
+# The governance layer is public as of 2026-07-25 (ADR-0006 Option A): docs/adr/, DECISIONS.md,
+# STATUS.md, and redacted audit records are tracked. What stays here is private for privacy or
+# operational reasons — third-party correspondence, session transcripts, working plans — never
+# because it is unflattering.
 /.openmao/
 /BUILD_PLAN.md
-/DECISIONS.md
-/STATUS.md
 /MODULE_OWNERSHIP.md
 /WORK_BREAKDOWN.md
 /decisions/
@@ -45,9 +48,17 @@ coverage/
 /docs/audit-trails/
 /docs/runbooks/
 /docs/SESSION_PROTOCOL.md
-/docs/audits/
 /docs/evidence/
+
+# Audit records are private by default; a redacted `*-public-record.md` is published instead.
+/docs/audits/*
+!/docs/audits/*-public-record.md
 /docs/templates/APPROVAL_PACKET_TEMPLATE.md
 /docs/templates/AUDIT_REPORT_TEMPLATE.md
 /docs/templates/SESSION_TEMPLATE.md
 /docs/templates/SIGNOFF_LOG_TEMPLATE.md
+
+# long-horizon-goal local pointers (must not be committed)
+.goal/lease.json
+.goal/last-head
+node_modules

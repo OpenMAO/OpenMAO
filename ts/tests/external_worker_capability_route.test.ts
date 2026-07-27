@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createServer } from "../src/api/server.js";
 import { Database } from "../src/persistence/index.js";
-import { WORKSPACE_ID } from "../src/spine/index.js";
+import { SpineService, WORKSPACE_ID } from "../src/spine/index.js";
 import {
   prepareReferenceWorkerDemo,
   REFERENCE_CREDENTIAL_HANDLE,
@@ -16,14 +16,19 @@ import {
   REFERENCE_TASK_ID,
   REFERENCE_WORKER_ID,
 } from "../src/workers/index.js";
+import {
+  authenticateOperatorPrincipal,
+  principalHeaders,
+  seedPrincipalAtPath,
+} from "./helpers/principals.js";
 
-const OPERATOR_TOKEN = "test-operator-token";
 const MOCK_SECRET = "local_mock_secret_do_not_serialize";
 
 let tmpRoot: string;
 let dbPath: string;
 let server: Server;
 let baseUrl: string;
+let operatorToken: string;
 
 type CallResponse = {
   status: number;
@@ -37,8 +42,7 @@ async function postCall(body: Record<string, unknown>): Promise<CallResponse> {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-openmao-operator-token": OPERATOR_TOKEN,
-      "x-openmao-actor": "external-worker-test",
+      ...principalHeaders(operatorToken),
       "x-openmao-workspace": WORKSPACE_ID,
     },
     body: JSON.stringify(body),
@@ -74,10 +78,15 @@ beforeEach(async () => {
   const database = new Database(dbPath);
   database.initialize();
   // Seed worker/work/run/envelope/task/capability WITHOUT invoking — run stays `running`.
-  prepareReferenceWorkerDemo(database);
+  new SpineService(database).initDemoWorkspace();
+  prepareReferenceWorkerDemo(
+    database,
+    authenticateOperatorPrincipal(database, WORKSPACE_ID, "Reference Demo Operator"),
+  );
   database.close();
 
-  server = createServer({ dbPath, operatorToken: OPERATOR_TOKEN, workspaceId: WORKSPACE_ID });
+  operatorToken = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "External Worker Test").token;
+  server = createServer({ dbPath });
   await new Promise<void>((resolve) => {
     server.listen(0, "127.0.0.1", resolve);
   });

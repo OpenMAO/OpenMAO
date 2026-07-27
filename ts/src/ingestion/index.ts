@@ -1,1 +1,1 @@
-export { IngestionService } from "./service.js";
+export { IngestionService, OperatorActorRefusedError } from "./service.js";

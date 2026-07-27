@@ -8,9 +8,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createServer } from "../src/api/server.js";
 import { CapabilityCallSchema, CapabilityResultSchema } from "../src/contracts/index.js";
-import { CapabilityCallStore, CapabilityResultStore, Database } from "../src/persistence/index.js";
+import {
+  CapabilityCallStore,
+  CapabilityResultStore,
+  Database,
+  WorkerCredentialStore,
+  WorkerIdentityStore,
+} from "../src/persistence/index.js";
 import { WorkerAuthService } from "../src/security/worker-auth.js";
-import { WORKSPACE_ID } from "../src/spine/index.js";
+import { SpineService, WORKSPACE_ID } from "../src/spine/index.js";
 import {
   prepareReferenceWorkerDemo,
   REFERENCE_CREDENTIAL_HANDLE,
@@ -19,14 +25,19 @@ import {
   REFERENCE_WORK_ID,
   REFERENCE_WORKER_ID,
 } from "../src/workers/index.js";
-
-const OPERATOR_TOKEN = "test-operator-token";
+import {
+  authenticateOperatorPrincipal,
+  principalHeaders,
+  seedPrincipalAtPath,
+} from "./helpers/principals.js";
 
 let tmpRoot: string;
 let dbPath: string;
 let server: Server;
 let baseUrl: string;
 let workerToken: string;
+let operatorPrincipalId: string;
+let operatorToken: string;
 
 type Res = {
   status: number;
@@ -53,10 +64,7 @@ async function req(
 }
 
 const workerHeaders = (): Record<string, string> => ({ "x-openmao-worker-token": workerToken });
-const operatorHeaders = (): Record<string, string> => ({
-  "x-openmao-operator-token": OPERATOR_TOKEN,
-  "x-openmao-actor": "operator",
-});
+const operatorHeaders = (): Record<string, string> => principalHeaders(operatorToken);
 
 function capabilityCallBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -118,14 +126,21 @@ beforeEach(async () => {
   dbPath = join(tmpRoot, "openmao.sqlite3");
   const database = new Database(dbPath);
   database.initialize();
-  prepareReferenceWorkerDemo(database);
+  new SpineService(database).initDemoWorkspace();
+  prepareReferenceWorkerDemo(
+    database,
+    authenticateOperatorPrincipal(database, WORKSPACE_ID, "Reference Demo Operator"),
+  );
   workerToken = new WorkerAuthService(database).mint({
     workspace_id: WORKSPACE_ID,
     worker_id: REFERENCE_WORKER_ID,
   }).token;
   database.close();
 
-  server = createServer({ dbPath, operatorToken: OPERATOR_TOKEN, workspaceId: WORKSPACE_ID });
+  const operator = seedPrincipalAtPath(dbPath, WORKSPACE_ID, "Test Operator");
+  operatorPrincipalId = operator.principal_id;
+  operatorToken = operator.token;
+  server = createServer({ dbPath });
   await new Promise<void>((resolve) => {
     server.listen(0, "127.0.0.1", resolve);
   });
@@ -189,6 +204,44 @@ describe("per-worker auth", () => {
     expect(status).toBe(403);
   });
 
+  it("stops resolving a worker token once its credential is revoked (WorkerCredentialStore.revoke)", () => {
+    // The store modelled status:"revoked" from day one but had no writer — PR #63's unlanded
+    // fast-follow. This proves the writer exists and that resolution honours it.
+    const database = new Database(dbPath);
+    try {
+      const service = new WorkerAuthService(database);
+      const minted = service.mint({
+        workspace_id: WORKSPACE_ID,
+        worker_id: REFERENCE_WORKER_ID,
+      });
+      expect(service.resolve(minted.token)).not.toBeNull();
+      new WorkerCredentialStore(database).revoke(minted.credential_id);
+      expect(service.resolve(minted.token)).toBeNull();
+    } finally {
+      database.close();
+    }
+  });
+
+  it("stops resolving a DISABLED worker identity's existing token — resolve re-checks identity status", () => {
+    // Regression: resolve() used to check only the credential row, so disabling a worker identity
+    // left every minted token live. The credential AND the identity must both be in good standing.
+    const database = new Database(dbPath);
+    try {
+      const service = new WorkerAuthService(database);
+      expect(service.resolve(workerToken)).not.toBeNull();
+
+      const identity = new WorkerIdentityStore(database).get(REFERENCE_WORKER_ID);
+      expect(identity?.status).toBe("enabled");
+      database.connection
+        .prepare("UPDATE worker_identities SET payload_json = ? WHERE id = ?")
+        .run(JSON.stringify({ ...identity, status: "disabled" }), REFERENCE_WORKER_ID);
+
+      expect(service.resolve(workerToken)).toBeNull();
+    } finally {
+      database.close();
+    }
+  });
+
   it("still lets the operator issue an envelope — operator retains full authority", async () => {
     const { status } = await req(
       "POST",
@@ -249,15 +302,24 @@ describe("per-worker auth", () => {
     expect(visibleIds.has(otherResultId)).toBe(false);
   });
 
-  it("rejects a whitespace-only operator actor over HTTP with 400 missing_actor", async () => {
-    // A blank actor cannot anchor an audit trail; the operator boundary treats "   " exactly like a
-    // missing actor header so merge order with the approval-integrity work can never regress it.
-    const { status, json } = await req("GET", "/capability-calls", {
-      "x-openmao-operator-token": OPERATOR_TOKEN,
+  it("rejects a caller-supplied actor header with 400 — even a blank one, even with a valid credential", async () => {
+    // The guarantee the retired whitespace-actor test pinned, at the new boundary: a supplied
+    // actor header is not sanitised into shape, it is a spoof attempt and fails closed. The
+    // recorded identity is always the credential's principal (operatorPrincipalId), so there is
+    // no merge-order path back to caller-influenced identity.
+    const blank = await req("GET", "/capability-calls", {
+      ...operatorHeaders(),
       "x-openmao-actor": "   ",
     });
-    expect(status).toBe(400);
-    expect(json.error).toBe("missing_actor");
+    expect(blank.status).toBe(400);
+    expect(blank.json.error).toBe("actor_header_rejected");
+    const forged = await req("GET", "/capability-calls", {
+      ...operatorHeaders(),
+      "x-openmao-actor": REFERENCE_WORKER_ID,
+    });
+    expect(forged.status).toBe(400);
+    expect(forged.json.error).toBe("actor_header_rejected");
+    expect(operatorPrincipalId).toMatch(/^principal_/);
   });
 
   it("maps an idempotency-key conflict (same key, different id) to 409, not 500", async () => {

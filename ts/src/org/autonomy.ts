@@ -9,6 +9,13 @@ import {
   utcNow,
 } from "../contracts/index.js";
 import {
+  DECISION_OBJECT_TYPES,
+  type DecisionSigner,
+  decisionSignatureRef,
+  signAutonomyRatification,
+  snapshotPrincipalIdentity,
+} from "../governance/decision-signing.js";
+import {
   AutonomyCaseStore,
   type Database,
   EventStore,
@@ -159,15 +166,20 @@ export class AutonomyService {
 
   /**
    * Ratify a proposed widening — the human gate. This is the only path that moves the dial. It
-   * refuses self-ratification and compare-and-swaps on the level the case was justified against, so a
-   * widening can never land if the dial has drifted since the case was made.
+   * refuses self-ratification (compared on STABLE PRINCIPAL IDS, never key ids, so rotation can
+   * never make one human two) and compare-and-swaps on the level the case was justified against, so a
+   * widening can never land if the dial has drifted since the case was made. The ratification is
+   * signed over the stored ratified row, inside this transaction.
    */
   ratifyWidening(
     caseId: string,
-    input: { workspace_id: string; actor: string; at?: string | null },
+    input: { workspace_id: string; signer: DecisionSigner; at?: string | null },
   ): AutonomyCase {
     return this.database.transaction(() => {
-      const ratifier = normalizeActor(input.actor, "actor");
+      // Snapshot the identity ONCE: the self-ratification guard and the
+      // stored-signer resolution both act on this snapshot, so they cannot
+      // observe different values even in principle.
+      const ratifier = snapshotPrincipalIdentity(input.signer.principal);
       const autonomyCase = this.requireCase(input.workspace_id, caseId);
       if (autonomyCase.status !== "proposed") {
         if (autonomyCase.status === "ratified") {
@@ -177,9 +189,9 @@ export class AutonomyService {
           `autonomy case already ${autonomyCase.status}: ${caseId}`,
         );
       }
-      if (normalizeActor(autonomyCase.proposed_by, "proposed_by") === ratifier) {
+      if (normalizeActor(autonomyCase.proposed_by, "proposed_by") === ratifier.principal_id) {
         throw new AutonomyRatificationError(
-          `autonomy widening must be ratified by someone other than the proposer: ${ratifier}`,
+          `autonomy widening must be ratified by someone other than the proposer: ${ratifier.principal_id}`,
         );
       }
 
@@ -203,8 +215,21 @@ export class AutonomyService {
       // a matching ratified case exists, so ratification is the sole widening path — even at the
       // store layer. If the widen fails, the whole transaction (including the ratify) rolls back.
       const ratified = this.cases.setStatus(caseId, "ratified", {
-        ratified_by: ratifier,
+        ratified_by: ratifier.principal_id,
         resolved_at: at,
+      });
+      // Sign over the STORED ratified row (its resolved_at, never a signing-time
+      // clock): ratification, signature row, dial move, and event commit
+      // together or roll back together. The wrapper requires the stored row's
+      // resolved_at — there is no `?? at` fallback; a ratified row without its
+      // decision time refuses to sign.
+      const decision = signAutonomyRatification({
+        database: this.database,
+        workspaceId: input.workspace_id,
+        signer: input.signer,
+        identity: ratifier,
+        objectType: DECISION_OBJECT_TYPES.autonomy_ratify,
+        autonomyCase: ratified,
       });
       const updatedOrg = this.orgs.setAutonomyLevel(autonomyCase.org_id, {
         workspace_id: input.workspace_id,
@@ -215,13 +240,14 @@ export class AutonomyService {
       this.events.append({
         workspace_id: input.workspace_id,
         kind: "autonomy.widened",
-        actor: ratifier,
+        actor: ratifier.actor,
         payload: EventPayloadSchema.parse({
           data: {
             autonomy_case: ratified,
             organization: updatedOrg,
             from: org.autonomy_level,
             to: proposedLevel,
+            decision_signature: decisionSignatureRef(decision),
           },
           refs: [ratified.id, ratified.org_id],
         }),

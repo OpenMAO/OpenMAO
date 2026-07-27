@@ -23,6 +23,7 @@ import {
 } from "../src/persistence/index.js";
 import { dumpJson } from "../src/persistence/serialization.js";
 import { createApprovalServiceWithApplications } from "../src/runtime/approvals.js";
+import { createSigningOperator } from "./helpers/principals.js";
 
 const fixturePath = new URL("../../tests/fixtures/canonical_v0.json", import.meta.url);
 
@@ -81,9 +82,12 @@ function seedRealAppliedChange(): void {
   });
   createApprovalServiceWithApplications(database).approve(approval_id, {
     workspace_id: workspaceId,
-    actor: "human",
+    signer: createSigningOperator(database, workspaceId, "Approver").signer,
   });
-  service.markApplied(proposal.id, { workspace_id: workspaceId, actor: "operator" });
+  service.markApplied(proposal.id, {
+    workspace_id: workspaceId,
+    signer: createSigningOperator(database, workspaceId, "Operator").signer,
+  });
   realProposalId = proposal.id;
   const application = new OrgChangeApplicationStore(database).getForProposal(
     workspaceId,

@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -34,6 +34,8 @@ import {
   RunStore,
   WorkspaceStore,
 } from "../src/persistence/index.js";
+import { resolveCliPrincipal } from "../src/security/authenticated-principal.js";
+import { workspaceCustodyDir } from "../src/security/key-custody.js";
 import { COORDINATOR_MEMORY_ID, RUN_ID, SpineService, WORKSPACE_ID } from "../src/spine/index.js";
 
 const fixturePath = new URL("../../tests/fixtures/canonical_v0.json", import.meta.url);
@@ -467,22 +469,36 @@ describe("memory provenance invariant (#113)", () => {
     expect(eventsOfKind("memory.untrusted_reviewed")).toEqual([]);
   });
 
-  it("gates the CLI review path behind --include-untrusted --by", async () => {
+  it("records the authenticated principal as the reviewer on the CLI untrusted-review path", async () => {
+    // The retired version gated on `--by`: the reviewer was a typed-in name.
+    // The guard's meaning survives at the new boundary — a review of
+    // untrusted memory still goes on the record with a named reviewer — but
+    // the reviewer is the AUTHENTICATED principal, and `--by` itself is a
+    // hard error so a scripted spoof fails loudly.
     const dbPath = join(tmpRoot, "openmao.sqlite3");
+    const cliOperator = resolveCliPrincipal(
+      database,
+      WS,
+      workspaceCustodyDir(join(dirname(dbPath), "keys"), WS),
+    );
     const attested = promotionService().writeIndividual(
-      makeEntry("mem_e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5", { attested_by: REVIEWER }),
+      makeEntry("mem_e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5", { attested_by: cliOperator.principal_id }),
     );
     promotionService().writeIndividual(makeEntry("mem_e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6", {}));
 
     // Attest e5 over the CLI so it is guidance-eligible and visible by default.
     const attestLines: string[] = [];
     expect(
-      await runCli(["memory", "attest", attested.id, "--by", REVIEWER, "--workspace", WS], {
+      await runCli(["memory", "attest", attested.id, "--workspace", WS], {
         dbPath,
         write: (message) => attestLines.push(message),
       }),
     ).toBe(0);
-    expect(JSON.parse(attestLines.join("\n")).kind).toBe("memory.operator_attested");
+    const attestEvent = JSON.parse(attestLines.join("\n")) as { kind: string; actor: string };
+    expect(attestEvent.kind).toBe("memory.operator_attested");
+    // The attesting identity is the authenticated principal — never a typed-in name.
+    expect(attestEvent.actor).toBe(cliOperator.principal_id);
+    expect(attestEvent.actor).toMatch(/^principal_[0-9a-f]{32}$/);
 
     const defaultLines: string[] = [];
     expect(
@@ -499,16 +515,17 @@ describe("memory provenance invariant (#113)", () => {
       "mem_e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6",
     );
 
+    // Self-asserted reviewer identity is refused outright.
     await expect(
-      runCli(["memory", "list", "--workspace", WS, "--include-untrusted"], {
+      runCli(["memory", "list", "--workspace", WS, "--include-untrusted", "--by", REVIEWER], {
         dbPath,
         write: () => {},
       }),
-    ).rejects.toThrow(/--include-untrusted requires --by/);
+    ).rejects.toThrow(/--by is no longer accepted/);
 
     const reviewLines: string[] = [];
     expect(
-      await runCli(["memory", "list", "--workspace", WS, "--include-untrusted", "--by", REVIEWER], {
+      await runCli(["memory", "list", "--workspace", WS, "--include-untrusted"], {
         dbPath,
         write: (message) => reviewLines.push(message),
       }),
@@ -518,7 +535,11 @@ describe("memory provenance invariant (#113)", () => {
       (row) => row.entry.id === "mem_e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6",
     );
     expect(untrustedRow?.trust).toBe("untrusted");
-    expect(eventsOfKind("memory.untrusted_reviewed")).toHaveLength(1);
+    const audits = eventsOfKind("memory.untrusted_reviewed");
+    expect(audits).toHaveLength(1);
+    // The review went on the record under the same authenticated principal
+    // that attested — the reviewer is named, and the name is real.
+    expect(audits[0]?.payload.data.reviewed_by).toBe(attestEvent.actor);
   });
 
   it("anchors the demo's memories to the artifact_created event so they stay guidance-eligible", async () => {

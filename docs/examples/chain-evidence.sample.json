@@ -1,0 +1,1215 @@
+{
+  "format": "openmao-chain-evidence/v1",
+  "exported_at": "2026-07-27T15:47:16.943Z",
+  "workspace_id": "ws_11111111111111111111111111111111",
+  "genesis_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "events": [
+    {
+      "id": "evt_028be59aef754a25980b0d461312b150",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": null,
+      "seq": 1,
+      "run_seq": null,
+      "kind": "workspace.created",
+      "actor": "spine",
+      "payload": {
+        "data": {
+          "workspace": {
+            "created_at": "2026-05-27T15:20:00Z",
+            "default_org_id": "org_22222222222222222222222222222222",
+            "id": "ws_11111111111111111111111111111111",
+            "name": "Acme Learning Lab Workspace"
+          }
+        },
+        "refs": [
+          "ws_11111111111111111111111111111111"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "ws_11111111111111111111111111111111:created",
+      "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "hash": "13a3b8442a58dc77e5e9f57fa12a730ea928f0a2a9369687c316f8c3ce149ad2"
+    },
+    {
+      "id": "evt_b6b6a820e485449fbca93900c290b09b",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": null,
+      "seq": 2,
+      "run_seq": null,
+      "kind": "org.created",
+      "actor": "spine",
+      "payload": {
+        "data": {
+          "agents": [
+            {
+              "id": "agent_55555555555555555555555555555555",
+              "identity": "Coordinator Agent",
+              "memory_scope": {
+                "read": [
+                  "collective"
+                ],
+                "write": [
+                  "individual"
+                ]
+              },
+              "model_binding": "mock",
+              "role_id": "role_33333333333333333333333333333333",
+              "status": "idle",
+              "workspace_id": "ws_11111111111111111111111111111111"
+            },
+            {
+              "id": "agent_66666666666666666666666666666666",
+              "identity": "Research Agent",
+              "memory_scope": {
+                "read": [],
+                "write": []
+              },
+              "model_binding": "mock",
+              "role_id": "role_44444444444444444444444444444444",
+              "status": "idle",
+              "workspace_id": "ws_11111111111111111111111111111111"
+            }
+          ],
+          "organization": {
+            "autonomy_level": "supervised",
+            "config_version": "0.1",
+            "goals": [
+              "goal_77777777777777777777777777777777"
+            ],
+            "id": "org_22222222222222222222222222222222",
+            "mission": "Coordinate a deterministic onboarding brief through governed AI work.",
+            "name": "Acme Learning Lab",
+            "policies": [
+              "Collective memory promotion requires approval."
+            ],
+            "type": "custom",
+            "values": [
+              "accountability",
+              "clarity",
+              "rebuildability"
+            ],
+            "vision": "A small AI-native organization with inspectable authority and memory.",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          },
+          "roles": [
+            {
+              "capability_grants": [
+                "memory.read",
+                "memory.write",
+                "promotion.propose"
+              ],
+              "id": "role_33333333333333333333333333333333",
+              "kpis": [],
+              "name": "coordinator",
+              "permissions": [],
+              "purpose": "Plan work, delegate bounded subtasks, compose final artifacts.",
+              "reports_to": null,
+              "responsibilities": [
+                "delegate one research subtask",
+                "compose final brief"
+              ],
+              "workspace_id": "ws_11111111111111111111111111111111"
+            },
+            {
+              "capability_grants": [
+                "mock.research_lookup",
+                "memory.write"
+              ],
+              "id": "role_44444444444444444444444444444444",
+              "kpis": [],
+              "name": "researcher",
+              "permissions": [],
+              "purpose": "Gather seeded information and return structured findings.",
+              "reports_to": null,
+              "responsibilities": [
+                "call mock research lookup"
+              ],
+              "workspace_id": "ws_11111111111111111111111111111111"
+            }
+          ]
+        },
+        "refs": [
+          "org_22222222222222222222222222222222",
+          "role_33333333333333333333333333333333",
+          "role_44444444444444444444444444444444",
+          "agent_55555555555555555555555555555555",
+          "agent_66666666666666666666666666666666"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "org_22222222222222222222222222222222:created",
+      "prev_hash": "13a3b8442a58dc77e5e9f57fa12a730ea928f0a2a9369687c316f8c3ce149ad2",
+      "hash": "8a20957fef54b2898d497e82c4a87177539487007dfee75b8b45c61722ae926e"
+    },
+    {
+      "id": "evt_f8ca4c116a5d4166ad20177ca1f081dd",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": null,
+      "seq": 3,
+      "run_seq": null,
+      "kind": "capability.registered",
+      "actor": "capability_registry",
+      "payload": {
+        "data": {
+          "capability": {
+            "canonical_input_schema": {
+              "properties": {
+                "query": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            },
+            "canonical_output_schema": {
+              "properties": {
+                "findings": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "findings"
+              ],
+              "type": "object"
+            },
+            "credential_handle": null,
+            "credential_handle_required": false,
+            "default_permission": "enabled",
+            "description": "Return seeded information for the onboarding brief demo.",
+            "name": "mock.research_lookup",
+            "providers": [
+              "mock"
+            ],
+            "resource_fields": [],
+            "risk_level": "low",
+            "side_effecting": false,
+            "tool_name": null,
+            "workspace_id": "ws_11111111111111111111111111111111"
+          }
+        },
+        "refs": [],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "ws_11111111111111111111111111111111:mock.research_lookup:registered",
+      "prev_hash": "8a20957fef54b2898d497e82c4a87177539487007dfee75b8b45c61722ae926e",
+      "hash": "7dc6fe67927e7e6c0104021a42a6600da9748827ac2e8f50aa1ab03ff4b418ef"
+    },
+    {
+      "id": "evt_282544355b604c9583055a9c9c25cde2",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 4,
+      "run_seq": 1,
+      "kind": "run.started",
+      "actor": "spine",
+      "payload": {
+        "data": {
+          "run_id": "run_99999999999999999999999999999999"
+        },
+        "refs": [
+          "run_99999999999999999999999999999999"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "run_99999999999999999999999999999999:run_started",
+      "prev_hash": "7dc6fe67927e7e6c0104021a42a6600da9748827ac2e8f50aa1ab03ff4b418ef",
+      "hash": "29c5f9d75a46934b379c456e1b65175ded52fb16550e992318bd87302eafed17"
+    },
+    {
+      "id": "evt_758cbba045554d6c8c5f6d3491d4ef58",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 5,
+      "run_seq": 2,
+      "kind": "work.created",
+      "actor": "spine",
+      "payload": {
+        "data": {
+          "work_item": {
+            "approval_gates": [
+              "memory.promote"
+            ],
+            "evaluation": [],
+            "id": "work_88888888888888888888888888888888",
+            "memory_scope": {
+              "read": [
+                "collective"
+              ],
+              "write": [
+                "individual"
+              ]
+            },
+            "objective": "Create a short onboarding brief for a new member.",
+            "owner": "agent_55555555555555555555555555555555",
+            "priority": "medium",
+            "reviewer": "human",
+            "risk_level": "low",
+            "source": {
+              "external_id": null,
+              "external_url": null,
+              "provider": "openmao"
+            },
+            "status": "queued",
+            "success_criteria": [
+              "brief is short",
+              "assumptions are explicit"
+            ],
+            "title": "Create onboarding brief",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          }
+        },
+        "refs": [
+          "work_88888888888888888888888888888888"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "run_99999999999999999999999999999999:work_created",
+      "prev_hash": "29c5f9d75a46934b379c456e1b65175ded52fb16550e992318bd87302eafed17",
+      "hash": "0b268ecc8f976e2130903235d1bac797919c00e21beb5c2a217df4c37aba220a"
+    },
+    {
+      "id": "evt_b4e7e376f30e4b41a5da5ac6120d67f7",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 6,
+      "run_seq": 3,
+      "kind": "agent.invoked",
+      "actor": "spine",
+      "payload": {
+        "data": {
+          "agent_id": "agent_55555555555555555555555555555555",
+          "objective": "Create a short onboarding brief for a new member."
+        },
+        "refs": [
+          "agent_55555555555555555555555555555555",
+          "work_88888888888888888888888888888888"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "run_99999999999999999999999999999999:coordinator_invoked",
+      "prev_hash": "0b268ecc8f976e2130903235d1bac797919c00e21beb5c2a217df4c37aba220a",
+      "hash": "e1ace94511f0e43542a8134acc896935c67e31e4a85343e8cecd8d0c43dc0083"
+    },
+    {
+      "id": "evt_9d020b1c393a48d9807228373030b8ec",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 7,
+      "run_seq": 4,
+      "kind": "handoff.requested",
+      "actor": "spine",
+      "payload": {
+        "data": {
+          "from_agent_id": "agent_55555555555555555555555555555555",
+          "to_agent_id": "agent_66666666666666666666666666666666",
+          "work_item_id": "work_88888888888888888888888888888888"
+        },
+        "refs": [
+          "agent_55555555555555555555555555555555",
+          "agent_66666666666666666666666666666666",
+          "work_88888888888888888888888888888888"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "run_99999999999999999999999999999999:handoff_requested",
+      "prev_hash": "e1ace94511f0e43542a8134acc896935c67e31e4a85343e8cecd8d0c43dc0083",
+      "hash": "c48451f5962e1711d0f5238a86b4a5b072ebdb5debe116c841cd2adac33044d7"
+    },
+    {
+      "id": "evt_8fa2b72860a841d581873a39ccc195f2",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 8,
+      "run_seq": 5,
+      "kind": "policy.decision",
+      "actor": "governance",
+      "payload": {
+        "data": {
+          "policy_decision": {
+            "action": "handoff",
+            "approval_id": null,
+            "id": "decision_8884db33b62de2499c2bb2275c5abd7d",
+            "outcome": "allow",
+            "reason": "Org communication graph allows this handoff.",
+            "run_id": "run_99999999999999999999999999999999",
+            "source": "structural",
+            "target_id": "agent_66666666666666666666666666666666",
+            "target_type": "agent",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          }
+        },
+        "refs": [],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "handoff:run_99999999999999999999999999999999:agent_55555555555555555555555555555555:agent_66666666666666666666666666666666",
+      "prev_hash": "c48451f5962e1711d0f5238a86b4a5b072ebdb5debe116c841cd2adac33044d7",
+      "hash": "447925600491405785eb182754a2c97b0a3ff040443f7e722838c2b7af5df906"
+    },
+    {
+      "id": "evt_218704f4ef1448879a2946a250960263",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 9,
+      "run_seq": 6,
+      "kind": "handoff.completed",
+      "actor": "spine",
+      "payload": {
+        "data": {
+          "policy_decision": {
+            "action": "handoff",
+            "approval_id": null,
+            "id": "decision_8884db33b62de2499c2bb2275c5abd7d",
+            "outcome": "allow",
+            "reason": "Org communication graph allows this handoff.",
+            "run_id": "run_99999999999999999999999999999999",
+            "source": "structural",
+            "target_id": "agent_66666666666666666666666666666666",
+            "target_type": "agent",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          },
+          "task_envelope": {
+            "allowed_capabilities": [
+              "mock.research_lookup"
+            ],
+            "approval_gates": [],
+            "context_refs": [],
+            "from_agent": "agent_55555555555555555555555555555555",
+            "id": "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "objective": "Gather seeded information for onboarding.",
+            "resource_grants": {},
+            "run_id": "run_99999999999999999999999999999999",
+            "to_agent": "agent_66666666666666666666666666666666",
+            "work_item_id": "work_88888888888888888888888888888888",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          }
+        },
+        "refs": [
+          "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "decision_8884db33b62de2499c2bb2275c5abd7d"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "run_99999999999999999999999999999999:handoff_to_researcher",
+      "prev_hash": "447925600491405785eb182754a2c97b0a3ff040443f7e722838c2b7af5df906",
+      "hash": "d76ac00c5be15c81817467cf4875d0a3429fcf7b50f567c5d822b3cca6b40140"
+    },
+    {
+      "id": "evt_3273ef8843824dbb87b2afeff6c23f6e",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 10,
+      "run_seq": 7,
+      "kind": "agent.invoked",
+      "actor": "spine",
+      "payload": {
+        "data": {
+          "agent_id": "agent_66666666666666666666666666666666",
+          "task_id": "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "refs": [
+          "agent_66666666666666666666666666666666",
+          "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "run_99999999999999999999999999999999:researcher_invoked",
+      "prev_hash": "d76ac00c5be15c81817467cf4875d0a3429fcf7b50f567c5d822b3cca6b40140",
+      "hash": "eeaac5e122c93b3cd35280114f4b6afc4d86c485691eddd60619c9c211c8b971"
+    },
+    {
+      "id": "evt_a57527df5b6d4101ba83bec6a7692a51",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 11,
+      "run_seq": 8,
+      "kind": "capability_call.persisted",
+      "actor": "capability_registry",
+      "payload": {
+        "data": {
+          "capability_call": {
+            "audit_payload": {},
+            "capability_name": "mock.research_lookup",
+            "credential_handle": null,
+            "external_actor": null,
+            "id": "capcall_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "idempotency_key": "run_99999999999999999999999999999999:research_lookup",
+            "input": {
+              "query": "onboarding brief"
+            },
+            "provider": "mock",
+            "requested_by": "agent_66666666666666666666666666666666",
+            "risk_level": "low",
+            "run_id": "run_99999999999999999999999999999999",
+            "side_effecting": false,
+            "task_id": "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          }
+        },
+        "refs": [],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "capcall_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:persisted",
+      "prev_hash": "eeaac5e122c93b3cd35280114f4b6afc4d86c485691eddd60619c9c211c8b971",
+      "hash": "69bf7834ab5529f9c633f985fa546ca1305462cdcfe31557805edda041ed8d32"
+    },
+    {
+      "id": "evt_f1ebc0cc79c349e09742347a80434f23",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 12,
+      "run_seq": 9,
+      "kind": "capability.requested",
+      "actor": "capability_registry",
+      "payload": {
+        "data": {
+          "capability_call": {
+            "audit_payload": {},
+            "capability_name": "mock.research_lookup",
+            "credential_handle": null,
+            "external_actor": null,
+            "id": "capcall_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "idempotency_key": "run_99999999999999999999999999999999:research_lookup",
+            "input": {
+              "query": "onboarding brief"
+            },
+            "provider": "mock",
+            "requested_by": "agent_66666666666666666666666666666666",
+            "risk_level": "low",
+            "run_id": "run_99999999999999999999999999999999",
+            "side_effecting": false,
+            "task_id": "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          }
+        },
+        "refs": [],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "capcall_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:requested",
+      "prev_hash": "69bf7834ab5529f9c633f985fa546ca1305462cdcfe31557805edda041ed8d32",
+      "hash": "75e0fbe7cef158ecb92c741b5470df7742dd38ebbfe9c476583dd756e88cb1dc"
+    },
+    {
+      "id": "evt_1a573cf25a5e476ebbf9a08d26a114a5",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 13,
+      "run_seq": 10,
+      "kind": "policy.decision",
+      "actor": "governance",
+      "payload": {
+        "data": {
+          "policy_decision": {
+            "action": "capability.call",
+            "approval_id": null,
+            "id": "decision_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "outcome": "allow",
+            "reason": "Capability is enabled and granted at autonomy level 'supervised': mock.research_lookup.",
+            "run_id": "run_99999999999999999999999999999999",
+            "source": "structural",
+            "target_id": "capcall_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "target_type": "capability_call",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          }
+        },
+        "refs": [],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "capcall_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:policy_decision",
+      "prev_hash": "75e0fbe7cef158ecb92c741b5470df7742dd38ebbfe9c476583dd756e88cb1dc",
+      "hash": "95e08443974d7e1501644f37e942294e3d00365d7005bf30ac37a8dbd1dca5e1"
+    },
+    {
+      "id": "evt_12aa2638681d404584975f6924fd0bf8",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 14,
+      "run_seq": 11,
+      "kind": "capability.completed",
+      "actor": "capability_registry",
+      "payload": {
+        "data": {
+          "capability_result": {
+            "artifacts": [],
+            "call_id": "capcall_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "error": null,
+            "id": "capresult_e2c52740e28b4ec3aaf4fdcd6cacab95",
+            "node_effect_id": "effect_2b910ddf0068495b9e8c869b0253d173",
+            "output": {
+              "findings": [
+                "Use explicit assumptions.",
+                "Prefer short, reliable artifacts."
+              ]
+            },
+            "run_id": "run_99999999999999999999999999999999",
+            "status": "ok",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          }
+        },
+        "refs": [],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "capcall_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:completed",
+      "prev_hash": "95e08443974d7e1501644f37e942294e3d00365d7005bf30ac37a8dbd1dca5e1",
+      "hash": "fc56f1c9ac4790f51d8454dd890f9e62af9665b4402dc20d27506d43dd899558"
+    },
+    {
+      "id": "evt_6008fedb40b64d6096ffb73959fcc45b",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 15,
+      "run_seq": 12,
+      "kind": "artifact.created",
+      "actor": "spine",
+      "payload": {
+        "data": {
+          "artifact": {
+            "content_hash": "2f3a3f4af83f661fcbf181913030bd8404f68950c06cee85312c6f8941d631d6",
+            "content_ref": "artifacts/onboarding_brief.md",
+            "created_at": "2026-07-27T15:47:01Z",
+            "id": "artifact_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "produced_by": "agent_55555555555555555555555555555555",
+            "task_id": "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "type": "markdown",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          }
+        },
+        "refs": [
+          "artifact_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "run_99999999999999999999999999999999:artifact_created",
+      "prev_hash": "fc56f1c9ac4790f51d8454dd890f9e62af9665b4402dc20d27506d43dd899558",
+      "hash": "7718b6d2d67690d9d9d3c5303a1e2dd19160541d069261173412cb8e22aaf43b"
+    },
+    {
+      "id": "evt_214595b43cf846928bfb4106474d9bf5",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 16,
+      "run_seq": 13,
+      "kind": "agent.completed",
+      "actor": "spine",
+      "payload": {
+        "data": {
+          "agent_id": "agent_55555555555555555555555555555555",
+          "artifact_id": "artifact_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "refs": [
+          "agent_55555555555555555555555555555555",
+          "artifact_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "run_99999999999999999999999999999999:coordinator_finalized",
+      "prev_hash": "7718b6d2d67690d9d9d3c5303a1e2dd19160541d069261173412cb8e22aaf43b",
+      "hash": "08701c0d3f72409e67c3410d3bb2745b5e086492c0f2b334ec9559fb993f85d3"
+    },
+    {
+      "id": "evt_4e8a657219b24e34860bc2073b9f568b",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 17,
+      "run_seq": 14,
+      "kind": "memory.individual_written",
+      "actor": "promotion_service",
+      "payload": {
+        "data": {
+          "memory_entry": {
+            "confidence": 0.75,
+            "content": "Seeded research found that onboarding briefs should be concise.",
+            "created_at": "2026-05-27T15:20:05Z",
+            "id": "mem_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "kind": "episodic",
+            "owner_id": "agent_66666666666666666666666666666666",
+            "provenance": {
+              "agent_id": "agent_66666666666666666666666666666666",
+              "attested_by": null,
+              "capability_result_id": null,
+              "note": "artifact:artifact_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "role_id": null,
+              "run_id": "run_99999999999999999999999999999999",
+              "source_event_id": "evt_6008fedb40b64d6096ffb73959fcc45b",
+              "task_id": "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "scope": "individual",
+            "status": "confirmed",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          },
+          "trust": "guidance_eligible",
+          "trust_basis": "source_event"
+        },
+        "refs": [
+          "mem_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "mem_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee:individual_written",
+      "prev_hash": "08701c0d3f72409e67c3410d3bb2745b5e086492c0f2b334ec9559fb993f85d3",
+      "hash": "9ca97716ec08426bdbdcf778dd0ac075d4e3d51e7fdeaa024f4d79e63b9adcee"
+    },
+    {
+      "id": "evt_70000edaa30b4c85aebbf00c34440e9a",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 18,
+      "run_seq": 15,
+      "kind": "memory.individual_written",
+      "actor": "promotion_service",
+      "payload": {
+        "data": {
+          "memory_entry": {
+            "confidence": 0.8,
+            "content": "New members benefit from a short brief with explicit assumptions.",
+            "created_at": "2026-05-27T15:20:05Z",
+            "id": "mem_dddddddddddddddddddddddddddddddd",
+            "kind": "semantic",
+            "owner_id": "agent_55555555555555555555555555555555",
+            "provenance": {
+              "agent_id": "agent_55555555555555555555555555555555",
+              "attested_by": null,
+              "capability_result_id": null,
+              "note": "artifact:artifact_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "role_id": null,
+              "run_id": "run_99999999999999999999999999999999",
+              "source_event_id": "evt_6008fedb40b64d6096ffb73959fcc45b",
+              "task_id": "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "scope": "individual",
+            "status": "confirmed",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          },
+          "trust": "guidance_eligible",
+          "trust_basis": "source_event"
+        },
+        "refs": [
+          "mem_dddddddddddddddddddddddddddddddd"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "mem_dddddddddddddddddddddddddddddddd:individual_written",
+      "prev_hash": "9ca97716ec08426bdbdcf778dd0ac075d4e3d51e7fdeaa024f4d79e63b9adcee",
+      "hash": "5d374c7117a88ddd20d88736761af57503e2e36614f45f861385e2b4c02287f4"
+    },
+    {
+      "id": "evt_27bf949be0a9434ea768f92f066746dd",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 19,
+      "run_seq": 16,
+      "kind": "policy.decision",
+      "actor": "governance",
+      "payload": {
+        "data": {
+          "policy_decision": {
+            "action": "memory.promote",
+            "approval_id": null,
+            "id": "decision_cccccccccccccccccccccccccccccccc",
+            "outcome": "require_approval",
+            "reason": "Collective memory writes are approval-gated in v0.",
+            "run_id": "run_99999999999999999999999999999999",
+            "source": "structural",
+            "target_id": "promo_cccccccccccccccccccccccccccccccc",
+            "target_type": "promotion_candidate",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          }
+        },
+        "refs": [],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "promo_cccccccccccccccccccccccccccccccc:policy_decision",
+      "prev_hash": "5d374c7117a88ddd20d88736761af57503e2e36614f45f861385e2b4c02287f4",
+      "hash": "f50fc70962d9cdc55bc36b53f8b30c03bf756e8579f24b2ea0276051d4e02fb9"
+    },
+    {
+      "id": "evt_8934daee06d14102ab0aedcd1fef41fd",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 20,
+      "run_seq": 17,
+      "kind": "memory.promotion_proposed",
+      "actor": "promotion_service",
+      "payload": {
+        "data": {
+          "promotion_candidate": {
+            "corroboration_count": 1,
+            "created_at": "2026-05-27T15:20:06Z",
+            "id": "promo_cccccccccccccccccccccccccccccccc",
+            "proposed_by": "agent_55555555555555555555555555555555",
+            "proposed_content": "A short onboarding brief should include explicit assumptions.",
+            "rationale": "Useful reusable guidance for future onboarding tasks.",
+            "resolved_at": null,
+            "source_memory_entry": "mem_dddddddddddddddddddddddddddddddd",
+            "status": "pending",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          }
+        },
+        "refs": [
+          "promo_cccccccccccccccccccccccccccccccc",
+          "mem_dddddddddddddddddddddddddddddddd"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "promo_cccccccccccccccccccccccccccccccc:promotion_proposed",
+      "prev_hash": "f50fc70962d9cdc55bc36b53f8b30c03bf756e8579f24b2ea0276051d4e02fb9",
+      "hash": "bd7c3bf4b837f3f04d6e77913f9826a71976c1bcc25ce911f1a1a90d905fa629"
+    },
+    {
+      "id": "evt_5948e359e7bb42bd9041d3127e09aa61",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 21,
+      "run_seq": 18,
+      "kind": "approval.requested",
+      "actor": "approval_service",
+      "payload": {
+        "data": {
+          "approval_request": {
+            "action": "memory.promote",
+            "created_at": "2026-07-27T15:47:01Z",
+            "id": "approval_11111111111111111111111111111111",
+            "on_approve": "resume_run",
+            "on_reject": "fail_run",
+            "payload": {
+              "data": {
+                "promotion_candidate": {
+                  "corroboration_count": 1,
+                  "created_at": "2026-05-27T15:20:06Z",
+                  "id": "promo_cccccccccccccccccccccccccccccccc",
+                  "proposed_by": "agent_55555555555555555555555555555555",
+                  "proposed_content": "A short onboarding brief should include explicit assumptions.",
+                  "rationale": "Useful reusable guidance for future onboarding tasks.",
+                  "resolved_at": null,
+                  "source_memory_entry": "mem_dddddddddddddddddddddddddddddddd",
+                  "status": "pending",
+                  "workspace_id": "ws_11111111111111111111111111111111"
+                }
+              },
+              "reason": "Useful reusable guidance for future onboarding tasks.",
+              "target_id": "promo_cccccccccccccccccccccccccccccccc",
+              "target_type": "promotion_candidate"
+            },
+            "requested_by": "agent_55555555555555555555555555555555",
+            "resolved_at": null,
+            "run_id": "run_99999999999999999999999999999999",
+            "status": "pending",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          }
+        },
+        "refs": [
+          "approval_11111111111111111111111111111111"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:01Z",
+      "idempotency_key": "approval_11111111111111111111111111111111:requested",
+      "prev_hash": "bd7c3bf4b837f3f04d6e77913f9826a71976c1bcc25ce911f1a1a90d905fa629",
+      "hash": "5c9848ef38aca3ddf9224226944b3c15458eb4946951f1b67ab8f3d33d8f0216"
+    },
+    {
+      "id": "evt_da5d4ae2fc004dc485ee82fbb3401f19",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": null,
+      "seq": 22,
+      "run_seq": null,
+      "kind": "principal.bootstrapped",
+      "actor": "principal_43c271ad37574944aef5887ea1aa3ff1",
+      "payload": {
+        "data": {
+          "fingerprint": "1be5fc0b92f5ed241f0987d7541a014f0cabfc2926d755dc59dcc9d82f016490",
+          "key_id": "prinkey_a9cf7b258b894b6ea6e5fabefc56d79e",
+          "key_path": "/tmp/omao-sample/.openmao/keys/ws_11111111111111111111111111111111/operator.pk8",
+          "mode": "development_bootstrap",
+          "predicates": [
+            {
+              "observed": "count=0",
+              "predicate": "registry_empty",
+              "result": true
+            },
+            {
+              "observed": "mode=0600",
+              "predicate": "private_key_mode_0600",
+              "result": true
+            },
+            {
+              "observed": "owner_uid=501",
+              "predicate": "database_file_owned_by_current_user",
+              "result": true
+            }
+          ],
+          "principal_id": "principal_43c271ad37574944aef5887ea1aa3ff1",
+          "public_key": "-b70y9px99pyHBUSz1Cn3aVFEbCRgFkPvaxaL5cpqao"
+        },
+        "refs": [
+          "principal_43c271ad37574944aef5887ea1aa3ff1",
+          "prinkey_a9cf7b258b894b6ea6e5fabefc56d79e"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:02Z",
+      "idempotency_key": null,
+      "prev_hash": "5c9848ef38aca3ddf9224226944b3c15458eb4946951f1b67ab8f3d33d8f0216",
+      "hash": "07aeaf87c90498303363eb3f643b64294ac6d72bd7d0c84d518ae487bbc6848c"
+    },
+    {
+      "id": "evt_911f3ca3c20741d18e53e4294792e49b",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 23,
+      "run_seq": 19,
+      "kind": "approval.approved",
+      "actor": "principal_43c271ad37574944aef5887ea1aa3ff1",
+      "payload": {
+        "data": {
+          "approval_request": {
+            "action": "memory.promote",
+            "created_at": "2026-07-27T15:47:01Z",
+            "id": "approval_11111111111111111111111111111111",
+            "on_approve": "resume_run",
+            "on_reject": "fail_run",
+            "payload": {
+              "data": {
+                "promotion_candidate": {
+                  "corroboration_count": 1,
+                  "created_at": "2026-05-27T15:20:06Z",
+                  "id": "promo_cccccccccccccccccccccccccccccccc",
+                  "proposed_by": "agent_55555555555555555555555555555555",
+                  "proposed_content": "A short onboarding brief should include explicit assumptions.",
+                  "rationale": "Useful reusable guidance for future onboarding tasks.",
+                  "resolved_at": null,
+                  "source_memory_entry": "mem_dddddddddddddddddddddddddddddddd",
+                  "status": "pending",
+                  "workspace_id": "ws_11111111111111111111111111111111"
+                }
+              },
+              "reason": "Useful reusable guidance for future onboarding tasks.",
+              "target_id": "promo_cccccccccccccccccccccccccccccccc",
+              "target_type": "promotion_candidate"
+            },
+            "requested_by": "agent_55555555555555555555555555555555",
+            "resolved_at": "2026-07-27T15:47:02Z",
+            "run_id": "run_99999999999999999999999999999999",
+            "status": "approved",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          },
+          "decision_signature": {
+            "domain_tag": "application/vnd.openmao.governance-decision.approval-approve.v1+json",
+            "object_type": "approval_approve",
+            "signature_id": "govsig_753c8c000fbc41dd82d9edfe145d5deb",
+            "signed_at": "2026-07-27T15:47:02Z",
+            "signer_key_id": "prinkey_a9cf7b258b894b6ea6e5fabefc56d79e",
+            "signer_principal_id": "principal_43c271ad37574944aef5887ea1aa3ff1",
+            "trust": "development_bootstrap"
+          }
+        },
+        "refs": [
+          "approval_11111111111111111111111111111111"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:02Z",
+      "idempotency_key": "approval_11111111111111111111111111111111:approved",
+      "prev_hash": "07aeaf87c90498303363eb3f643b64294ac6d72bd7d0c84d518ae487bbc6848c",
+      "hash": "4b39483b7443c1be1b6a654e3dad5f9b972b8f4832a93429c70376222cd65d72"
+    },
+    {
+      "id": "evt_846ceb1287d04d96800f435b48f71f39",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 24,
+      "run_seq": 20,
+      "kind": "memory.collective_written",
+      "actor": "promotion_service",
+      "payload": {
+        "data": {
+          "approval_id": "approval_11111111111111111111111111111111",
+          "approval_request": {
+            "action": "memory.promote",
+            "created_at": "2026-07-27T15:47:01Z",
+            "id": "approval_11111111111111111111111111111111",
+            "on_approve": "resume_run",
+            "on_reject": "fail_run",
+            "payload": {
+              "data": {
+                "promotion_candidate": {
+                  "corroboration_count": 1,
+                  "created_at": "2026-05-27T15:20:06Z",
+                  "id": "promo_cccccccccccccccccccccccccccccccc",
+                  "proposed_by": "agent_55555555555555555555555555555555",
+                  "proposed_content": "A short onboarding brief should include explicit assumptions.",
+                  "rationale": "Useful reusable guidance for future onboarding tasks.",
+                  "resolved_at": null,
+                  "source_memory_entry": "mem_dddddddddddddddddddddddddddddddd",
+                  "status": "pending",
+                  "workspace_id": "ws_11111111111111111111111111111111"
+                }
+              },
+              "reason": "Useful reusable guidance for future onboarding tasks.",
+              "target_id": "promo_cccccccccccccccccccccccccccccccc",
+              "target_type": "promotion_candidate"
+            },
+            "requested_by": "agent_55555555555555555555555555555555",
+            "resolved_at": "2026-07-27T15:47:02Z",
+            "run_id": "run_99999999999999999999999999999999",
+            "status": "approved",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          },
+          "content_ref": "/tmp/omao-sample/.openmao/collective_memory/promo_cccccccccccccccccccccccccccccccc.md",
+          "memory_entry": {
+            "confidence": 0.8,
+            "content": "A short onboarding brief should include explicit assumptions.",
+            "created_at": "2026-07-27T15:47:02Z",
+            "id": "mem_cccccccccccccccccccccccccccccccc",
+            "kind": "semantic",
+            "owner_id": null,
+            "provenance": {
+              "agent_id": "agent_55555555555555555555555555555555",
+              "attested_by": null,
+              "capability_result_id": null,
+              "note": "source_promotion:promo_cccccccccccccccccccccccccccccccc",
+              "role_id": null,
+              "run_id": "run_99999999999999999999999999999999",
+              "source_event_id": "evt_6008fedb40b64d6096ffb73959fcc45b",
+              "task_id": "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "scope": "collective",
+            "status": "confirmed",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          },
+          "node_effect_id": "effect_15b0364322034853aef457d1b1e95592",
+          "promotion_candidate": {
+            "corroboration_count": 1,
+            "created_at": "2026-05-27T15:20:06Z",
+            "id": "promo_cccccccccccccccccccccccccccccccc",
+            "proposed_by": "agent_55555555555555555555555555555555",
+            "proposed_content": "A short onboarding brief should include explicit assumptions.",
+            "rationale": "Useful reusable guidance for future onboarding tasks.",
+            "resolved_at": "2026-07-27T15:47:02Z",
+            "source_memory_entry": "mem_dddddddddddddddddddddddddddddddd",
+            "status": "ratified",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          }
+        },
+        "refs": [
+          "approval_11111111111111111111111111111111",
+          "promo_cccccccccccccccccccccccccccccccc",
+          "mem_cccccccccccccccccccccccccccccccc",
+          "effect_15b0364322034853aef457d1b1e95592"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:02Z",
+      "idempotency_key": "promo_cccccccccccccccccccccccccccccccc:collective_written",
+      "prev_hash": "4b39483b7443c1be1b6a654e3dad5f9b972b8f4832a93429c70376222cd65d72",
+      "hash": "b0cff0db20b8fcbd876ae7e3369d7a56e15e2d38dbf465fd82e3eb185ace2471"
+    },
+    {
+      "id": "evt_6dba0664158549d0914af1a07350c170",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 25,
+      "run_seq": 21,
+      "kind": "work.completed",
+      "actor": "spine",
+      "payload": {
+        "data": {
+          "work_item": {
+            "approval_gates": [
+              "memory.promote"
+            ],
+            "evaluation": [],
+            "id": "work_88888888888888888888888888888888",
+            "memory_scope": {
+              "read": [
+                "collective"
+              ],
+              "write": [
+                "individual"
+              ]
+            },
+            "objective": "Create a short onboarding brief for a new member.",
+            "owner": "agent_55555555555555555555555555555555",
+            "priority": "medium",
+            "reviewer": "human",
+            "risk_level": "low",
+            "source": {
+              "external_id": null,
+              "external_url": null,
+              "provider": "openmao"
+            },
+            "status": "done",
+            "success_criteria": [
+              "brief is short",
+              "assumptions are explicit"
+            ],
+            "title": "Create onboarding brief",
+            "workspace_id": "ws_11111111111111111111111111111111"
+          }
+        },
+        "refs": [
+          "work_88888888888888888888888888888888"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:02Z",
+      "idempotency_key": "work_88888888888888888888888888888888:completed",
+      "prev_hash": "b0cff0db20b8fcbd876ae7e3369d7a56e15e2d38dbf465fd82e3eb185ace2471",
+      "hash": "e09eaa2490c737f15162c9c873e0ec7f71800fc3aeda7191c2cf2c12d1cc24b6"
+    },
+    {
+      "id": "evt_bec27e03c21543e59f4a5898db573b91",
+      "workspace_id": "ws_11111111111111111111111111111111",
+      "run_id": "run_99999999999999999999999999999999",
+      "seq": 26,
+      "run_seq": 22,
+      "kind": "run.completed",
+      "actor": "spine",
+      "payload": {
+        "data": {
+          "run_id": "run_99999999999999999999999999999999"
+        },
+        "refs": [
+          "run_99999999999999999999999999999999"
+        ],
+        "actor_ref": null,
+        "produced_refs": [],
+        "consumed_refs": [],
+        "causal_parent_id": null
+      },
+      "timestamp": "2026-07-27T15:47:02Z",
+      "idempotency_key": "run_99999999999999999999999999999999:run_completed_event",
+      "prev_hash": "e09eaa2490c737f15162c9c873e0ec7f71800fc3aeda7191c2cf2c12d1cc24b6",
+      "hash": "050fdb03fe89070c5297951a2be52b981b2f0fdfc20091ea9d479dce20c94bff"
+    }
+  ],
+  "attestation": {
+    "id": "chainatt_d0f90bfc9b28436bbf0ab928836b3bd0",
+    "workspace_id": "ws_11111111111111111111111111111111",
+    "head_sequence": 26,
+    "head_hash": "050fdb03fe89070c5297951a2be52b981b2f0fdfc20091ea9d479dce20c94bff",
+    "event_count": 26,
+    "previous_attestation_id": null,
+    "signer_key_id": "prinkey_a9cf7b258b894b6ea6e5fabefc56d79e",
+    "signer_principal_id": "principal_43c271ad37574944aef5887ea1aa3ff1",
+    "signature_id": "govsig_23e9e6bb324d417ebcff89afda8859a0",
+    "attested_at": "2026-07-27T15:47:02Z"
+  },
+  "signature": {
+    "id": "govsig_23e9e6bb324d417ebcff89afda8859a0",
+    "object_type": "chain_attestation",
+    "object_id": "chainatt_d0f90bfc9b28436bbf0ab928836b3bd0",
+    "signer_key_id": "prinkey_a9cf7b258b894b6ea6e5fabefc56d79e",
+    "signer_principal_id": "principal_43c271ad37574944aef5887ea1aa3ff1",
+    "signed_bytes": "eyJhbGciOiJFZERTQSIsImtpZCI6InByaW5rZXlfYTljZjdiMjU4Yjg5NGI2ZWE2ZTVmYWJlZmM1NmQ3OWUiLCJ0eXAiOiJhcHBsaWNhdGlvbi92bmQub3Blbm1hby5jaGFpbi1hdHRlc3RhdGlvbi52MStqc29uIn0.eyJhdHRlc3RlZF9hdCI6IjIwMjYtMDctMjdUMTU6NDc6MDJaIiwiZXZlbnRfY291bnQiOjI2LCJoZWFkX2hhc2giOiIwNTBmZGIwM2ZlODkwNzBjNTI5Nzk1MWEyYmU1MmI5ODFiMmYwZmRmYzIwMDkxZWE5ZDQ3OWRjZTIwYzk0YmZmIiwiaGVhZF9zZXF1ZW5jZSI6MjYsIm9iamVjdF9pZCI6ImNoYWluYXR0X2QwZjkwYmZjOWIyODQzNmJiZjBhYjkyODgzNmIzYmQwIiwicHJldmlvdXNfYXR0ZXN0YXRpb25faWQiOm51bGwsInNpZ25lciI6InByaW5jaXBhbF80M2MyNzFhZDM3NTc0OTQ0YWVmNTg4N2VhMWFhM2ZmMSIsInNpZ25lcl9rZXlfaWQiOiJwcmlua2V5X2E5Y2Y3YjI1OGI4OTRiNmVhNmU1ZmFiZWZjNTZkNzllIiwid29ya3NwYWNlX2lkIjoid3NfMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEifQ",
+    "signature": "lqURC7FX8SGdM9L6S3fSLT6QhO-tvWGZBn50KIbkW4iCR6xXa5enSuLGDpqLf9mWK2a9HmP7ax-ZngqxGujqDQ",
+    "domain_tag": "application/vnd.openmao.chain-attestation.v1+json",
+    "signed_at": "2026-07-27T15:47:02Z"
+  },
+  "signer": {
+    "principal_id": "principal_43c271ad37574944aef5887ea1aa3ff1",
+    "key_id": "prinkey_a9cf7b258b894b6ea6e5fabefc56d79e",
+    "algorithm": "Ed25519",
+    "public_key": "-b70y9px99pyHBUSz1Cn3aVFEbCRgFkPvaxaL5cpqao",
+    "trust": "development_bootstrap"
+  }
+}

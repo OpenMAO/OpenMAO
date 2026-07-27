@@ -1,9 +1,10 @@
 import type { CapabilityInvocation } from "../capabilities/index.js";
 import { CapabilityCallSchema, CapabilitySchema } from "../contracts/index.js";
-import { ApprovalService } from "../governance/index.js";
+import { ApprovalService, type DecisionSigner } from "../governance/index.js";
 import type { Database } from "../persistence/index.js";
 import { createLocalCapabilityRegistry } from "../runtime/capabilities.js";
 import { OpenMaoLocalClient } from "../sdk/index.js";
+import type { AuthenticatedPrincipal } from "../security/authenticated-principal.js";
 import { SpineService, WORKSPACE_ID } from "../spine/index.js";
 import { WorkService } from "../work/index.js";
 import { WorldModelService } from "../world/index.js";
@@ -49,19 +50,22 @@ type ReferenceWorkerContext = {
 
 export async function runReferenceWorkerDemo(
   database: Database,
+  principal: AuthenticatedPrincipal,
 ): Promise<ReferenceWorkerDemoResult> {
-  const context = prepareReferenceWorkerDemo(database);
+  const context = prepareReferenceWorkerDemo(database, principal);
   const invocation = await invokeReferenceCapability(context);
   if (invocation.result?.status === "ok") {
-    return finalizeReferenceWorkerDemo(database, context, invocation);
+    return finalizeReferenceWorkerDemo(database, principal, context, invocation);
   }
   return referenceResult(database, context, invocation);
 }
 
 export async function approveReferenceWorkerDemo(
   database: Database,
+  signer: DecisionSigner,
 ): Promise<ReferenceWorkerDemoResult> {
-  const started = await runReferenceWorkerDemo(database);
+  const principal = signer.principal;
+  const started = await runReferenceWorkerDemo(database, principal);
   if (started.capability_result_id) {
     return started;
   }
@@ -69,27 +73,29 @@ export async function approveReferenceWorkerDemo(
   const approvalId = started.capability_approval_id ?? REFERENCE_CAPABILITY_APPROVAL_ID;
   new ApprovalService(database).approve(approvalId, {
     workspace_id: WORKSPACE_ID,
-    actor: "reference_worker_demo",
+    // The approver of record is the authenticated operator — the demo mock is
+    // not an identity, and a hardcoded one would falsify the audit trail.
+    signer,
   });
-  const context = prepareReferenceWorkerDemo(database);
+  const context = prepareReferenceWorkerDemo(database, principal);
   const invocation = await context.registry.resumeApprovedCall(approvalId, {
     workspace_id: WORKSPACE_ID,
   });
   if (invocation.result?.status !== "ok") {
     return referenceResult(database, context, invocation);
   }
-  return finalizeReferenceWorkerDemo(database, context, invocation);
+  return finalizeReferenceWorkerDemo(database, principal, context, invocation);
 }
 
 // Exported as a test/demo seam: seeds the worker, work item, run, bounded envelope, task envelope,
 // and the side-effecting capability WITHOUT invoking it — so the run stays `running` and callers
 // (e.g. the external-worker HTTP route) can initiate a fresh governed call against a clean envelope.
-export function prepareReferenceWorkerDemo(database: Database): ReferenceWorkerContext {
+export function prepareReferenceWorkerDemo(
+  database: Database,
+  principal: AuthenticatedPrincipal,
+): ReferenceWorkerContext {
   new SpineService(database).initDemoWorkspace();
-  const client = new OpenMaoLocalClient(database, {
-    workspace_id: WORKSPACE_ID,
-    actor: "reference_worker_demo",
-  });
+  const client = new OpenMaoLocalClient(database, principal);
   const registry = createLocalCapabilityRegistry(database);
 
   registry.register(
@@ -160,7 +166,7 @@ export function prepareReferenceWorkerDemo(database: Database): ReferenceWorkerC
     id: REFERENCE_RUN_ID,
     workspace_id: WORKSPACE_ID,
     active_node: "reference_worker_started",
-    actor: "reference_worker_demo",
+    actor: principal.actor,
     idempotency_key: `${REFERENCE_RUN_ID}:started`,
   });
   const envelope =
@@ -216,6 +222,7 @@ function invokeReferenceCapability(context: ReferenceWorkerContext): Promise<Cap
 
 function finalizeReferenceWorkerDemo(
   database: Database,
+  principal: AuthenticatedPrincipal,
   context: ReferenceWorkerContext,
   invocation: CapabilityInvocation,
 ): ReferenceWorkerDemoResult {
@@ -269,7 +276,7 @@ function finalizeReferenceWorkerDemo(
   const run = new WorkService(database).completeExternalRun({
     run_id: REFERENCE_RUN_ID,
     active_node: "reference_worker_completed",
-    actor: "reference_worker_demo",
+    actor: principal.actor,
     refs: [invocation.call.id, ...(invocation.result?.id ? [invocation.result.id] : [])],
     data: {
       capability_call_id: invocation.call.id,

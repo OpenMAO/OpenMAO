@@ -32,11 +32,20 @@ type RecordIngestionInput = {
   payload?: Record<string, unknown>;
   occurred_at?: string | null;
   idempotency_key: string;
+  /**
+   * The authenticated principal recording this event. The EVENT's actor is
+   * always this identity — the body's ExternalActorRef is foreign provenance
+   * and lands in payload.actor_ref, so authority and provenance never mix.
+   */
+  recorded_by: string;
 };
 
-function actorString(actor: ExternalActorRef): string {
-  return `${actor.actor_type}:${actor.actor_id}`;
-}
+/**
+ * An inbound foreign event can never claim OpenMAO operator authority: a body
+ * asserting actor_type "operator" is refused outright, at the service layer so
+ * every entry point (HTTP route, CLI) enforces it identically.
+ */
+export class OperatorActorRefusedError extends Error {}
 
 export class IngestionService {
   private readonly events: EventStore;
@@ -77,7 +86,11 @@ export class IngestionService {
         workspace_id: saved.workspace_id,
         run_id: saved.target_run_id,
         kind: "ingestion.recorded",
-        actor: actorString(saved.actor),
+        // Authority is the authenticated principal; the foreign actor the body
+        // named is provenance and rides payload.actor_ref — a field that
+        // exists for exactly this purpose, so this closes the self-assertion
+        // channel with zero schema change.
+        actor: input.recorded_by,
         payload: EventPayloadSchema.parse({
           data: {
             ingestion_record: saved,
@@ -87,6 +100,7 @@ export class IngestionService {
             ...(saved.target_run_id ? [saved.target_run_id] : []),
             ...(saved.target_work_item_id ? [saved.target_work_item_id] : []),
           ],
+          actor_ref: saved.actor,
         }),
         idempotency_key: `${saved.id}:event`,
         timestamp: saved.occurred_at,
@@ -119,6 +133,11 @@ export class IngestionService {
     }
     if (!input.actor.actor_id.trim()) {
       throw new Error("ingestion actor identity is required");
+    }
+    if (input.actor.actor_type === "operator") {
+      throw new OperatorActorRefusedError(
+        "an inbound foreign event cannot claim OpenMAO operator authority (actor_type: operator)",
+      );
     }
     if (input.actor.actor_type === "worker") {
       const worker = this.workers.get(input.actor.actor_id);

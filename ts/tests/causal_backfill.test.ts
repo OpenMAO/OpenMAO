@@ -611,7 +611,14 @@ describe("v7 one-time causal backfill for pre-M0 events (#109)", () => {
     const triggers = database.connection
       .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name")
       .all() as Array<{ name: string }>;
-    expect(triggers.map((row) => row.name)).toEqual(["events_no_delete", "events_no_update"]);
+    // The M6 chain_head_attestations triggers are append-only guards on the new
+    // attestation table; the migration only ever touches the events triggers.
+    expect(triggers.map((row) => row.name)).toEqual([
+      "chain_head_attestations_no_delete",
+      "chain_head_attestations_no_update",
+      "events_no_delete",
+      "events_no_update",
+    ]);
   });
 
   it("changes no structural DDL, which is what makes the synthesized v6 fixture schema-accurate", () => {

@@ -27,6 +27,7 @@ import { createApprovalServiceWithApplications } from "../src/runtime/approvals.
 import { SensitiveMaterialError } from "../src/security/sensitive-material.js";
 import { WorkService } from "../src/work/index.js";
 import { WorldModelService } from "../src/world/index.js";
+import { createSigningOperator } from "./helpers/principals.js";
 
 const fixturePath = new URL("../../tests/fixtures/canonical_v0.json", import.meta.url);
 
@@ -266,7 +267,7 @@ describe("institutional learning loop", () => {
 
     createApprovalServiceWithApplications(database).approve(proposed.approval_id, {
       workspace_id: workspaceId,
-      actor: "human",
+      signer: createSigningOperator(database, workspaceId, "Approver").signer,
     });
     const approved = new OrgChangeProposalStore(database).get(proposed.proposal.id);
     expect(approved?.status).toBe("approved");
@@ -275,11 +276,11 @@ describe("institutional learning loop", () => {
     // `applied` (truth-in-status, #105).
     const acknowledged = service.markApplied(proposed.proposal.id, {
       workspace_id: workspaceId,
-      actor: "human",
+      signer: createSigningOperator(database, workspaceId, "Operator").signer,
     });
     const replayed = service.markApplied(proposed.proposal.id, {
       workspace_id: workspaceId,
-      actor: "another_human",
+      signer: createSigningOperator(database, workspaceId, "Another Operator").signer,
     });
     expect(acknowledged.status).toBe("acknowledged");
     expect(acknowledged.acknowledged_at).not.toBeNull();
@@ -333,7 +334,7 @@ describe("institutional learning loop", () => {
 
     new ApprovalService(database).reject(first.approval_id, {
       workspace_id: workspaceId,
-      actor: "human",
+      signer: createSigningOperator(database, workspaceId, "Rejecter").signer,
     });
     const snapshot = new WorldModelService(database).rebuild(workspaceId);
 
