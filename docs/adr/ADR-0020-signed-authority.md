@@ -10,8 +10,7 @@ and two adversarial reviews, per the project's independent-review discipline)
 
 ## Context
 
-ADR-0007 (first-class principals; not yet published — see the numbering note in this
-directory's README) committed OpenMAO to *bound* identity: every actor is a stored principal,
+[ADR-0007](./ADR-0007-first-class-principals.md) (first-class principals) committed OpenMAO to *bound* identity: every actor is a stored principal,
 resolved from a credential, never from a caller-asserted string. It did not commit to
 cryptography. This ADR records the cryptographic layer built on top of that commitment, because
 a signature scheme is a one-way door that outlives any single implementation and therefore
