@@ -251,6 +251,6 @@ all folded in above:
 
 ## Note on numbering
 
-This is the first ADR published in-repo. ADR-0001–0012 predate the public `docs/adr/` directory
-and publish under the ADR-0006 (public-or-dead governance records) hygiene pass; the numbering
-continues the existing private sequence rather than restarting it.
+This was the first ADR published in-repo (2026-07-25); the full historical set (ADR-0001–0012
+and the renumbered technical series ADR-0014–0019) was restored the following day by the
+ADR-0006 hygiene pass. See this directory's [README](./README.md) for the numbering history.
