@@ -328,6 +328,15 @@ export const WorkerOutcomeSchema = z
   })
   .strict();
 
+// ADR-0013: reconcilability lattice, ordered `receipt > downstream_state > none`.
+//   receipt          — the effect echoes a gateway-minted correlation id we persist.
+//   downstream_state — no echoed id, but the effect is observable in queryable downstream state.
+//   none             — not recoverable from any evidence we hold.
+// Exported so the registry gate and the contract/registry tests bind to one enum rather than
+// restating the literals.
+export const RECONCILABLE_LEVELS = ["receipt", "downstream_state", "none"] as const;
+export const ReconcilableSchema = z.enum(RECONCILABLE_LEVELS);
+
 export const CapabilitySchema = z
   .object({
     name: z.string(),
@@ -358,6 +367,12 @@ export const CapabilitySchema = z
     // GitHub comment). When non-empty, every call must carry an envelope resource grant for each
     // field — a granted capability can no longer act on an arbitrary resource (default-deny).
     resource_fields: z.array(z.string()).default([]),
+    // ADR-0013: whether this capability's effects are recoverable from evidence we hold, so a
+    // reconciliation pass can detect an effect the gateway never recorded. Defaults to the most
+    // restrictive value at the schema layer — an omitted field can never buy autonomy — and is
+    // additionally coerced downward at both gate sites against what the bound providers can
+    // actually observe. The restrictive-default precedent is `default_permission`.
+    reconcilable: ReconcilableSchema.default("none"),
   })
   .strict();
 
@@ -967,6 +982,7 @@ export type BoundedWorkEnvelope = z.infer<typeof BoundedWorkEnvelopeSchema>;
 export type AgentOutcome = z.infer<typeof AgentOutcomeSchema>;
 export type WorkerOutcome = z.infer<typeof WorkerOutcomeSchema>;
 export type Capability = z.infer<typeof CapabilitySchema>;
+export type Reconcilable = z.infer<typeof ReconcilableSchema>;
 export type CapabilityProviderRef = z.infer<typeof CapabilityProviderRefSchema>;
 export type CapabilityCall = z.infer<typeof CapabilityCallSchema>;
 export type CapabilityResult = z.infer<typeof CapabilityResultSchema>;

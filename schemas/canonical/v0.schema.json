@@ -1675,6 +1675,15 @@
             "type": "string"
           },
           "default": []
+        },
+        "reconcilable": {
+          "type": "string",
+          "enum": [
+            "receipt",
+            "downstream_state",
+            "none"
+          ],
+          "default": "none"
         }
       },
       "required": [

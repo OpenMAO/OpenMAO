@@ -3,6 +3,7 @@ import {
   type CapabilityResult,
   CapabilityResultSchema,
   newId,
+  type Reconcilable,
 } from "../contracts/index.js";
 import {
   type CredentialBroker,
@@ -10,12 +11,53 @@ import {
   StaticCredentialBroker,
 } from "../security/credential-broker.js";
 
+// ADR-0013: one externally-observable effect found by the discovery direction.
+export type ObservedEffect = {
+  // The gateway-minted correlation marker recovered from the effect, when the provider can
+  // recover one. Null means the effect carries no marker we can match a claim against — which
+  // is what an effect-without-claim looks like before it is classified.
+  marker: string | null;
+  observed_at: string;
+  detail?: Record<string, unknown>;
+};
+
+// Bounded window for the discovery direction, with cursor/watermark semantics.
+export type EffectWindow = {
+  workspace_id: string;
+  since: string;
+  until?: string;
+  cursor?: string | null;
+};
+
+// ADR-0013: tri-state, never a bare null. Conflating "the provider was down" with "the effect
+// does not exist" would let an outage manufacture false liveness-gap violations, and conflating
+// single with multiple observations would hide a planted or duplicated effect carrying a copied
+// marker — so `observed` carries its multiplicity.
+export type EffectObservation =
+  | { status: "observed"; effects: ObservedEffect[] }
+  | { status: "absent" }
+  | { status: "unobservable"; reason: string };
+
 export type CapabilityProvider = {
   name: string;
   // Providers that perform real external side effects declare this so the
   // gateway can require the side-effect/approval gate even if a capability is
   // misregistered as non-side-effecting.
   sideEffecting?: boolean;
+  // ADR-0013. Absent collapses to "none": a provider predating the field is automatically
+  // most-restricted, never silently trusted — the same rule as the intrinsic `sideEffecting`
+  // declaration.
+  reconcilable?: Reconcilable;
+  // Outcome direction (claim -> effect): evidence for one known call. Detects
+  // intent-without-outcome. REQUIRED for any declared level above "none" — a declaration
+  // without it is decorative, and registration treats it as a mismatch.
+  observeEffect?(call: CapabilityCall): Promise<EffectObservation>;
+  // Discovery direction (effect -> claim): enumerate effects in a bounded window so the
+  // reconciliation pass can find effects no gateway record explains. This is the ONLY operation
+  // that can detect effect-without-claim, the breach class. Optional per provider, but its
+  // absence makes the capability discovery-blind and must be reported as a named coverage gap
+  // rather than silently read as "no breaches". The pass that consumes it is slice 3.
+  listEffects?(window: EffectWindow): Promise<ObservedEffect[]>;
   execute(call: CapabilityCall): CapabilityResult | Promise<CapabilityResult>;
 };
 
