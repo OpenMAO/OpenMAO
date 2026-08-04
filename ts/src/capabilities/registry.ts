@@ -12,6 +12,8 @@ import {
   newId,
   type PolicyDecision,
   PolicyDecisionSchema,
+  RECONCILABLE_LEVELS,
+  type Reconcilable,
   utcNow,
 } from "../contracts/index.js";
 import { ApprovalService, type GovernanceService } from "../governance/index.js";
@@ -33,6 +35,17 @@ import {
   validateCredentialHandle,
 } from "../security/sensitive-material.js";
 import type { CapabilityProvider } from "./providers.js";
+
+// ADR-0013: strictness rank down the lattice `receipt > downstream_state > none`, fail-closed
+// toward `none`. Index in the exported enum is the rank, so the order lives in one place.
+function reconcilableRank(level: Reconcilable): number {
+  return RECONCILABLE_LEVELS.indexOf(level);
+}
+
+// Weakest link: any listed provider can serve the call, so the effective level is the minimum.
+function weakerReconcilable(a: Reconcilable, b: Reconcilable): Reconcilable {
+  return reconcilableRank(a) >= reconcilableRank(b) ? a : b;
+}
 
 export type CapabilityInvocation = {
   call: CapabilityCall;
@@ -105,6 +118,21 @@ export class CapabilityRegistryService {
       // it must be a non-secret cred_* handle — never a raw token.
       if (capability.credential_handle) {
         validateCredentialHandle(capability.credential_handle);
+      }
+      // ADR-0013: registration gates the declaration. When at least one declared provider is
+      // bound, a declaration that exceeds what those providers can actually reconcile FAILS
+      // registration — loud on config drift, before anything binds, and the registration path
+      // has no liveness cost. Unbound registration is provisional (recorded as declared) and the
+      // invoke-time re-derivation below is the unconditional enforcement point; rejecting here
+      // would break every registration in the credential-free default process.
+      const reconciliation = this.deriveReconcilable(capability);
+      if (reconciliation.boundCount > 0 && reconciliation.effective !== capability.reconcilable) {
+        const because = reconciliation.missingObserve.length
+          ? ` (bound provider(s) declare a reconcilable level but implement no observeEffect: ${reconciliation.missingObserve.join(", ")})`
+          : "";
+        throw new CapabilityRegistryError(
+          `capability declares reconcilable '${capability.reconcilable}' but bound providers support at most '${reconciliation.effective}': ${capability.name}${because}`,
+        );
       }
       const registered = this.capabilities.save(capability);
       this.events.append({
@@ -282,6 +310,18 @@ export class CapabilityRegistryService {
     }
 
     const executable = transactionResult.executable;
+    // ADR-0013, the unconditional invoke-time arm. Every path that reaches provider execution
+    // converges here — the fresh-decision path, the approved-approval resume path and the
+    // recorded-decision replay path — so re-deriving at this single point gates all three by
+    // construction. A gate on the fresh path alone is bypassed by resuming, which is the hole
+    // #120 had to patch for suspensions.
+    //
+    // Coerce and warn, never reject: rejecting here would turn config drift into a runtime
+    // outage for a call the stricter gate was about to handle synchronously anyway. The fresh
+    // path has already had `effective` folded into its decision; on resume and replay the
+    // decision was recorded earlier, so what this site adds is the mismatch signal the
+    // diagnosis pass consumes when a weaker provider was bound after the fact.
+    this.emitReconcilableMismatch(executable.call, executable.capability);
     const result = await this.executeProvider(executable.call, executable.capability);
     return {
       call: executable.call,
@@ -347,6 +387,77 @@ export class CapabilityRegistryService {
     };
   }
 
+  // ADR-0013, the shared derivation both gate sites use. Returns the effective reconcilability
+  // against the providers bound RIGHT NOW, plus the bookkeeping the two sites need to differ on.
+  //
+  // A provider is "bound" when a name the capability declares resolves in the registry's provider
+  // map. `boundCount === 0` is the provisional case: registration-before-binding, and the default
+  // credential-free process where real providers bind only under explicit environment opt-in. A
+  // min over an empty set must never silently validate an over-claim, so the caller distinguishes
+  // it rather than reading a vacuous `receipt`.
+  //
+  // `missingObserve` carries the read-back rule: a declared level above "none" is decorative
+  // unless the bound provider can actually answer the outcome direction, so a provider lacking
+  // `observeEffect` contributes "none" to the min AND is named, because registration rejects on
+  // it while invoke only coerces.
+  private deriveReconcilable(capability: Capability): {
+    effective: Reconcilable;
+    boundCount: number;
+    missingObserve: string[];
+  } {
+    let effective: Reconcilable = capability.reconcilable;
+    let boundCount = 0;
+    const missingObserve: string[] = [];
+
+    for (const name of capability.providers) {
+      const provider = this.providers.get(name);
+      if (!provider) {
+        continue;
+      }
+      boundCount += 1;
+      const declared: Reconcilable = provider.reconcilable ?? "none";
+      // A level above "none" with no way to read the effect back is treated as "none", not as
+      // the declared level — otherwise the enum is decorative and slice 3 has nothing to query.
+      const usable: Reconcilable =
+        declared === "none" || provider.observeEffect ? declared : "none";
+      if (declared !== "none" && !provider.observeEffect) {
+        missingObserve.push(name);
+      }
+      effective = weakerReconcilable(effective, usable);
+    }
+
+    return { effective, boundCount, missingObserve };
+  }
+
+  // ADR-0013: emit the observable a late-bound weaker provider must leave behind. Silent when
+  // the bound reality still matches the declaration, so the event means "this call was gated
+  // more strictly than its capability record claims" and nothing else.
+  private emitReconcilableMismatch(call: CapabilityCall, capability: Capability): void {
+    const { effective, boundCount, missingObserve } = this.deriveReconcilable(capability);
+    if (boundCount === 0 || effective === capability.reconcilable) {
+      return;
+    }
+    this.database.transaction(() => {
+      this.events.append({
+        workspace_id: call.workspace_id,
+        run_id: call.run_id,
+        kind: "capability.reconcilable_mismatch",
+        actor: "capability_registry",
+        payload: EventPayloadSchema.parse({
+          data: {
+            capability_name: capability.name,
+            call_id: call.id,
+            declared: capability.reconcilable,
+            effective,
+            providers_missing_observe_effect: missingObserve,
+          },
+        }),
+        // One signal per call, not per retry: the idempotency key is the call id.
+        idempotency_key: `${call.id}:reconcilable_mismatch`,
+      });
+    });
+  }
+
   private decideCall(call: CapabilityCall, capability: Capability): PolicyDecision {
     const taskBoundaryBlockReason = this.taskBoundaryBlockReason(call);
     if (taskBoundaryBlockReason) {
@@ -361,10 +472,14 @@ export class CapabilityRegistryService {
     if (resourceScopeBlockReason) {
       return this.policyBlock(call, resourceScopeBlockReason);
     }
+    // ADR-0013, invoke arm: re-derive against what is bound NOW rather than trusting the level
+    // recorded at registration. Late-binding a weaker provider cannot widen a capability that
+    // registered clean — the call collapses to the stricter gate instead.
+    const { effective } = this.deriveReconcilable(capability);
     if (call.external_actor?.actor_type === "worker") {
-      return this.decideWorkerCapability(call, capability);
+      return this.decideWorkerCapability(call, capability, effective);
     }
-    return this.governance.decideCapability(call, capability);
+    return this.governance.decideCapability(call, capability, effective);
   }
 
   private gatewayBlockReason(call: CapabilityCall, capability: Capability): string | null {
@@ -404,7 +519,11 @@ export class CapabilityRegistryService {
     return null;
   }
 
-  private decideWorkerCapability(call: CapabilityCall, capability: Capability): PolicyDecision {
+  private decideWorkerCapability(
+    call: CapabilityCall,
+    capability: Capability,
+    effectiveReconcilable: Reconcilable,
+  ): PolicyDecision {
     const actorId = call.external_actor?.actor_id;
     if (actorId !== call.requested_by) {
       return this.policyBlock(call, "External worker actor does not match capability caller.");
@@ -434,7 +553,11 @@ export class CapabilityRegistryService {
       return this.policyBlock(call, suspensionReason);
     }
 
-    const decision = this.governance.capabilityApprovalDecision(call, capability);
+    const decision = this.governance.capabilityApprovalDecision(
+      call,
+      capability,
+      effectiveReconcilable,
+    );
 
     return PolicyDecisionSchema.parse({
       id: newId("decision"),

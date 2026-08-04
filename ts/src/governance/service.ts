@@ -11,6 +11,7 @@ import {
   type PolicyDecision,
   PolicyDecisionSchema,
   type PolicyOutcome,
+  type Reconcilable,
 } from "../contracts/index.js";
 import type { OrgRegistry } from "../org/index.js";
 import type { Database } from "../persistence/index.js";
@@ -33,6 +34,7 @@ function approvalTrigger(
   call: CapabilityCall,
   capability: Capability,
   autonomyLevel: AutonomyLevel,
+  effectiveReconcilable: Reconcilable,
 ): string | null {
   if (capability.default_permission === "approval_required") {
     return "Approval-required capability call";
@@ -44,6 +46,16 @@ function approvalTrigger(
   const sideEffecting = capability.side_effecting || call.side_effecting;
   if (effectiveRisk === "high") {
     return "High-risk capability call";
+  }
+  // ADR-0013: a side-effecting capability whose effects cannot be reconciled from any evidence
+  // we hold forces the synchronous gate, and the autonomy dial cannot widen past it — this sits
+  // ABOVE the `bounded` early return deliberately. Scoped to side-effecting: an unreconcilable
+  // *read* is not the omission threat, and forcing approval on every mock lookup would make the
+  // default local mode unusable. Stated honestly, this is authorization control and not omission
+  // detection — for the `none` class reconciliation cannot backstop the audit log at all, which
+  // is why the class is gated hardest.
+  if (sideEffecting && effectiveReconcilable === "none") {
+    return "Unreconcilable side-effecting capability call";
   }
   if (autonomyLevel === "bounded") {
     // Trusted to act within limits: only high-risk (handled above) needs a human.
@@ -117,7 +129,11 @@ export class GovernanceService {
     });
   }
 
-  decideCapability(callInput: CapabilityCall, capabilityInput: Capability): PolicyDecision {
+  decideCapability(
+    callInput: CapabilityCall,
+    capabilityInput: Capability,
+    effectiveReconcilable?: Reconcilable,
+  ): PolicyDecision {
     const call = CapabilityCallSchema.parse(callInput);
     const capability = CapabilitySchema.parse(capabilityInput);
     const grants = this.orgRegistry.allowedCapabilitiesForAgent(call.requested_by);
@@ -137,7 +153,11 @@ export class GovernanceService {
         outcome = "block";
         reason = suspensionReason;
       } else {
-        ({ outcome, reason } = this.capabilityApprovalDecision(call, capability));
+        ({ outcome, reason } = this.capabilityApprovalDecision(
+          call,
+          capability,
+          effectiveReconcilable ?? capability.reconcilable,
+        ));
       }
     }
 
@@ -189,12 +209,17 @@ export class GovernanceService {
   // surfaces record the same policy basis. Risk and side-effecting are taken from the
   // capability's declared values as a floor (see approvalTrigger), so a caller cannot
   // under-report. Payload-level "out-of-bounds"/scope modeling remains a follow-up.
+  // `effectiveReconcilable` (ADR-0013) is the level re-derived against the providers bound right
+  // now; only the registry owns that map, so it passes the value in. Callers that cannot derive
+  // it fall back to the capability's declaration — the same "recorded but unverified" reading as
+  // a provisional registration, never a silent upgrade.
   capabilityApprovalDecision(
     call: CapabilityCall,
     capability: Capability,
+    effectiveReconcilable: Reconcilable = capability.reconcilable,
   ): { outcome: "allow" | "require_approval"; reason: string } {
     const autonomyLevel = this.autonomyLevel(call.workspace_id);
-    const trigger = approvalTrigger(call, capability, autonomyLevel);
+    const trigger = approvalTrigger(call, capability, autonomyLevel, effectiveReconcilable);
     if (trigger) {
       return {
         outcome: "require_approval",

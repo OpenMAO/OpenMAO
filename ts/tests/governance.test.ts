@@ -1380,6 +1380,11 @@ describe("TypeScript governance and capabilities", () => {
       name: "mock.side_effect.record",
       workspace_id: workspaceId,
       description: "Enabled side effect for autonomy-dial testing.",
+      // ADR-0013: these cases test the DIAL, so the capability declares a level the bound
+      // MockSideEffectProvider actually supports (it records call ids and implements
+      // observeEffect). Left at the schema default "none" the unreconcilable-forcing rule
+      // would gate every case and the dial would no longer be what is under test.
+      reconcilable: "receipt",
       tool_name: "mock.side_effect",
       canonical_input_schema: {
         type: "object",
