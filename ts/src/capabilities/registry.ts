@@ -126,10 +126,7 @@ export class CapabilityRegistryService {
       // invoke-time re-derivation below is the unconditional enforcement point; rejecting here
       // would break every registration in the credential-free default process.
       const reconciliation = this.deriveReconcilable(capability);
-      if (
-        reconciliation.boundCount > 0 &&
-        reconciliation.effective !== capability.reconcilable
-      ) {
+      if (reconciliation.boundCount > 0 && reconciliation.effective !== capability.reconcilable) {
         const because = reconciliation.missingObserve.length
           ? ` (bound provider(s) declare a reconcilable level but implement no observeEffect: ${reconciliation.missingObserve.join(", ")})`
           : "";
@@ -421,7 +418,8 @@ export class CapabilityRegistryService {
       const declared: Reconcilable = provider.reconcilable ?? "none";
       // A level above "none" with no way to read the effect back is treated as "none", not as
       // the declared level — otherwise the enum is decorative and slice 3 has nothing to query.
-      const usable: Reconcilable = declared === "none" || provider.observeEffect ? declared : "none";
+      const usable: Reconcilable =
+        declared === "none" || provider.observeEffect ? declared : "none";
       if (declared !== "none" && !provider.observeEffect) {
         missingObserve.push(name);
       }

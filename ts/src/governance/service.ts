@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 
 import {
   type Capability,
-  type Reconcilable,
   type CapabilityCall,
   CapabilityCallSchema,
   CapabilitySchema,
@@ -12,6 +11,7 @@ import {
   type PolicyDecision,
   PolicyDecisionSchema,
   type PolicyOutcome,
+  type Reconcilable,
 } from "../contracts/index.js";
 import type { OrgRegistry } from "../org/index.js";
 import type { Database } from "../persistence/index.js";
