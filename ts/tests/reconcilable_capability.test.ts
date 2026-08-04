@@ -21,11 +21,12 @@ import {
   type Reconcilable,
   WorkerIdentitySchema,
 } from "../src/contracts/index.js";
-import { GovernanceService } from "../src/governance/index.js";
+import { ApprovalService, GovernanceService } from "../src/governance/index.js";
 import { OrgRegistry } from "../src/org/index.js";
 import { Database, EventStore, WorkerIdentityStore } from "../src/persistence/index.js";
 import { SpineService, WORKSPACE_ID } from "../src/spine/index.js";
 import { WorkService } from "../src/work/index.js";
+import { createSigningOperator } from "./helpers/principals.js";
 
 // ADR-0013 gate sites. The reconciliation pass that consumes `observeEffect`/`listEffects` is
 // slice 3; what is under test here is only the declaration, the lattice, and the two gates.
@@ -284,6 +285,63 @@ describe("ADR-0013 reconcilability", () => {
   });
 });
 
+// (b2) — the invoke-time arm must gate the NON-fresh execute paths too, not only the fresh
+// decision. This is the #120 shape: a gate that lives on the fresh path alone is bypassed the
+// moment a call resumes from an approval or replays a recorded decision. Luka's suite covers the
+// fresh path; this covers the approval-resume path end to end (approve → resumeApprovedCall).
+//
+// The recorded-decision REPLAY path (a decision committed but no result persisted) is only
+// reachable through a true crash between the decision transaction and provider execution:
+// `executeProvider` writes a durable provider effect and catches provider throws into a recorded
+// `failed` result, so no normal invocation leaves a decision-without-result behind. That is the
+// crash-window acceptance test (a) in slice 2–3; forcing it here would require mocking a private
+// method, which this suite never does. It is deferred there rather than faked here.
+describe("ADR-0013 invoke gate covers the approval-resume path (#120)", () => {
+  it("re-derives reconcilability on resume, so an approval cannot launder a weaker-bound provider", async () => {
+    // Registered clean at "receipt" against a provider that supports it...
+    registryWith([new MockSideEffectProvider({ [HANDLE]: "secret" })]).register(
+      capability("receipt"),
+    );
+
+    // ...then served by a registry whose bound provider reconciles only at "downstream_state" —
+    // weaker than the record. Late binding must not be able to widen what registered clean, and
+    // resuming must not be a way around the check.
+    const weakened = registryWith([new DownstreamStateProvider()]);
+
+    // Fresh invoke is high-risk, so it suspends for approval on the risk ALONE — a trigger
+    // orthogonal to reconcilability. It returns pending WITHOUT reaching the execute choke point,
+    // so nothing is signalled yet: the assertion below pins that to zero deliberately.
+    const suspended = await invokeSideEffectHighRisk(weakened);
+    expect(suspended.decision.outcome).toBe("require_approval");
+    expect(suspended.result).toBeUndefined();
+    expect(mismatchEvents()).toHaveLength(0);
+
+    // A human approves the RISK. That approval says nothing about reconcilability.
+    new ApprovalService(database).approve(suspended.approval_id ?? "", {
+      workspace_id: WORKSPACE_ID,
+      signer: createSigningOperator(database, WORKSPACE_ID, "Resume Test Operator").signer,
+    });
+
+    // Resume routes back through invoke() → the approved branch → the single execute choke point.
+    const resumed = await weakened.resumeApprovedCall(suspended.approval_id ?? "", {
+      workspace_id: WORKSPACE_ID,
+    });
+    expect(resumed.result?.status).toBe("ok"); // the weaker provider really did run
+
+    // Load-bearing: the signal exists ONLY because resume re-entered the choke point. A gate on
+    // the fresh-decision path alone would have left the resume silent — the #120 laundering this
+    // guards against. Attribution is unambiguous: 0 before the resume, exactly 1 after, and the
+    // mismatch event is idempotent per call id, so it cannot be a stray retry.
+    const mismatches = mismatchEvents();
+    expect(mismatches).toHaveLength(1);
+    expect(mismatches[0]?.payload.data).toMatchObject({
+      declared: "receipt",
+      effective: "downstream_state",
+      call_id: resumed.call.id,
+    });
+  });
+});
+
 // A capability call needs a real run and a bounded envelope granting the capability, so that the
 // gate under test is the reconcilability one and not an envelope refusal.
 function seedEnvelopeFor(capabilityName: string): {
@@ -376,4 +434,34 @@ async function invokeCall(registry: CapabilityRegistryService) {
       idempotency_key: `reconcilable:call:${suffix}`,
     }),
   );
+}
+
+// The side-effecting call, but high-risk so the fresh decision is require_approval on the risk
+// alone — the trigger stays orthogonal to reconcilability, so a mismatch on resume is
+// attributable to the resume re-derivation and not to the dial forcing the gate.
+async function invokeSideEffectHighRisk(registry: CapabilityRegistryService) {
+  const { runId, taskId, suffix } = seedEnvelopeFor(CAP);
+  return await registry.invoke(
+    CapabilityCallSchema.parse({
+      id: `capcall_${suffix}`,
+      workspace_id: WORKSPACE_ID,
+      run_id: runId,
+      task_id: taskId,
+      capability_name: CAP,
+      provider: "mock.side_effect",
+      input: { message: "hello" },
+      requested_by: WORKER_ID,
+      external_actor: { actor_type: "worker", actor_id: WORKER_ID, display_name: "Test Worker" },
+      credential_handle: HANDLE,
+      side_effecting: true,
+      risk_level: "high",
+      idempotency_key: `reconcilable:resume:${suffix}`,
+    }),
+  );
+}
+
+function mismatchEvents() {
+  return new EventStore(database)
+    .listForWorkspace(WORKSPACE_ID)
+    .filter((event) => event.kind === "capability.reconcilable_mismatch");
 }
