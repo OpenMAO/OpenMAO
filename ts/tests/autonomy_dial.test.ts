@@ -27,6 +27,12 @@ async function outcomeFor(
   callOverrides: Record<string, unknown> = {},
   permission: "enabled" | "approval_required" | "disabled" = "enabled",
   capabilityRisk: "low" | "medium" | "high" = "low",
+  // ADR-0013: these cases exercise the AUTONOMY DIAL, so they declare a reconcilable
+  // capability by default. Leaving this at the schema default ("none") would make every
+  // side-effecting case below gate on the unreconcilable-forcing rule instead of on the
+  // dial, and the dial would stop being what is under test. The forcing rule has its own
+  // cases at the bottom of this file.
+  reconcilable: "receipt" | "downstream_state" | "none" = "receipt",
 ): Promise<PolicyOutcome> {
   const database = new Database(":memory:");
   database.initialize();
@@ -54,6 +60,7 @@ async function outcomeFor(
       ...(fixture.capability as Record<string, unknown>),
       default_permission: permission,
       risk_level: capabilityRisk,
+      reconcilable,
     });
     const call = CapabilityCallSchema.parse({
       ...(fixture.capability_call as Record<string, unknown>),
@@ -95,6 +102,30 @@ describe("autonomy dial", () => {
     expect(await outcomeFor("advisory", sideEffecting)).toBe("require_approval");
     expect(await outcomeFor("supervised", sideEffecting)).toBe("require_approval");
     expect(await outcomeFor("bounded", sideEffecting)).toBe("allow");
+  });
+
+  // ADR-0013 §5: an unreconcilable SIDE EFFECT is gated hardest, and the autonomy dial
+  // cannot widen it. This is the one rule that sits above the `bounded` early return.
+  it("forces the gate on an unreconcilable side effect even at bounded — the dial cannot widen it", async () => {
+    const sideEffecting = { side_effecting: true, risk_level: "low" };
+    expect(await outcomeFor("bounded", sideEffecting, "enabled", "low", "none")).toBe(
+      "require_approval",
+    );
+    // Same call, same level, only the declared reconcilability differs: with evidence we can
+    // reconcile against, bounded still allows it. This is the pair that proves the new rule
+    // is doing the work rather than the dial having quietly tightened.
+    expect(await outcomeFor("bounded", sideEffecting, "enabled", "low", "downstream_state")).toBe(
+      "allow",
+    );
+    expect(await outcomeFor("bounded", sideEffecting, "enabled", "low", "receipt")).toBe("allow");
+  });
+
+  it("does not force the gate on an unreconcilable READ — the omission threat is side effects", async () => {
+    // Scoped deliberately: forcing synchronous approval on every unreconcilable lookup would
+    // make the default local mode unusable, and a read is not the omission this ADR closes.
+    expect(await outcomeFor("bounded", { risk_level: "low" }, "enabled", "low", "none")).toBe(
+      "allow",
+    );
   });
 
   it("an explicit approval_required capability stays gated even at the loosest level", async () => {

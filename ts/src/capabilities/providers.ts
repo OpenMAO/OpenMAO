@@ -4,6 +4,7 @@ import {
   CapabilityResultSchema,
   newId,
   type Reconcilable,
+  utcNow,
 } from "../contracts/index.js";
 import {
   type CredentialBroker,
@@ -89,6 +90,10 @@ export class MockProvider implements CapabilityProvider {
 export class MockSideEffectProvider implements CapabilityProvider {
   readonly name = "mock.side_effect";
   readonly sideEffecting = true;
+  // ADR-0013: this mock records the gateway-minted call id of every effect it produces, so it
+  // can answer the outcome direction exactly — which is what `receipt` means. The declaration
+  // is backed by a real `observeEffect` below rather than being decorative.
+  readonly reconcilable = "receipt" as const;
   readonly executedCallIds: string[] = [];
   private readonly broker: CredentialBroker;
 
@@ -123,6 +128,23 @@ export class MockSideEffectProvider implements CapabilityProvider {
         handle,
       },
     });
+  }
+
+  // Outcome direction: was there an effect for THIS call? Multiplicity is reported honestly
+  // rather than collapsed, so a duplicated effect is visible instead of reading as one.
+  async observeEffect(call: CapabilityCall): Promise<EffectObservation> {
+    const matches = this.executedCallIds.filter((id) => id === call.id);
+    if (matches.length === 0) {
+      return { status: "absent" };
+    }
+    return {
+      status: "observed",
+      effects: matches.map(() => ({
+        marker: `omao:${call.workspace_id}:${call.id}`,
+        observed_at: utcNow(),
+        detail: { provider: this.name },
+      })),
+    };
   }
 }
 
