@@ -22,7 +22,9 @@ import {
 import { WorkService } from "../src/work/index.js";
 import {
   REFERENCE_CAPABILITY_APPROVAL_ID,
+  REFERENCE_INGESTION_ID,
   REFERENCE_RUN_ID,
+  REFERENCE_WORK_ID,
   REFERENCE_WORKER_ID,
 } from "../src/workers/index.js";
 import {
@@ -537,9 +539,10 @@ describe("TypeScript operator surfaces", () => {
     expect(JSON.parse(appliedOutput.lines[0] ?? "{}").status).toBe("acknowledged");
   });
 
-  it("runs the reference external-worker demo through the CLI", async () => {
+  it("runs the documented external-worker world example through the CLI", async () => {
     const workerDemoOutput = capture();
     const approvalsOutput = capture();
+    const suspendedWorldOutput = capture();
     const workerApprovalOutput = capture();
     const worldOutput = capture();
 
@@ -549,6 +552,18 @@ describe("TypeScript operator surfaces", () => {
     expect(JSON.parse(approvalsOutput.lines[0] ?? "[]")[0].id).toBe(
       "approval_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     );
+    expect(
+      await runCli(["world", "--run", REFERENCE_RUN_ID], {
+        dbPath,
+        write: suspendedWorldOutput.write,
+      }),
+    ).toBe(0);
+    const suspendedWorld = JSON.parse(suspendedWorldOutput.lines[0] ?? "{}");
+    expect(suspendedWorld.latest_run_status).toBe("suspended_approval");
+    expect(suspendedWorld.active_work).toEqual([REFERENCE_WORK_ID]);
+    expect(suspendedWorld.pending_approvals).toEqual([REFERENCE_CAPABILITY_APPROVAL_ID]);
+    expect(suspendedWorld.external_workers).toEqual([REFERENCE_WORKER_ID]);
+    expect(suspendedWorld.recent_ingestions).toEqual([]);
     await expect(
       runCli(
         [
@@ -568,10 +583,20 @@ describe("TypeScript operator surfaces", () => {
       }),
     ).toBe(0);
     expect(JSON.parse(workerApprovalOutput.lines[0] ?? "{}").work_status).toBe("done");
-    expect(await runCli(["world"], { dbPath, write: worldOutput.write })).toBe(0);
-    expect(JSON.parse(worldOutput.lines[0] ?? "{}").external_workers).toEqual([
-      "worker_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    ]);
+    expect(
+      await runCli(["world", "--run", REFERENCE_RUN_ID], {
+        dbPath,
+        write: worldOutput.write,
+      }),
+    ).toBe(0);
+    const world = JSON.parse(worldOutput.lines[0] ?? "{}");
+    expect(world.run_id).toBe(REFERENCE_RUN_ID);
+    expect(world.latest_run_status).toBe("completed");
+    expect(world.active_work).toEqual([]);
+    expect(world.pending_approvals).toEqual([]);
+    expect(world.external_workers).toEqual([REFERENCE_WORKER_ID]);
+    expect(world.recent_ingestions).toEqual([REFERENCE_INGESTION_ID]);
+    expect(world.cache_only).toBe(true);
   });
 
   it("serves demo, approvals, world, and console over HTTP", async () => {
