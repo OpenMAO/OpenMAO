@@ -34,7 +34,7 @@ export function utcNow(): string {
 
 // Normalize any valid RFC3339 UTC instant to canonical second precision, so that
 // lexicographic string comparison (used by SQL `<=` on stored timestamps) matches
-// chronological order. Throws on an unparseable value.
+// chronological order. Throws on an unparsable value.
 export function normalizeInstant(value: string): string {
   const parsed = Date.parse(value);
   if (Number.isNaN(parsed)) {
